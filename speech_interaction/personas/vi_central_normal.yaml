@@ -1,0 +1,155 @@
+persona_id: vi_central_normal
+language: vi
+locale: vi-VN
+accent_region: central
+accent_region_label: Trung Việt Nam nói chung
+dialect_scope: Đại diện giọng Trung ở mức vùng lớn; không gắn cứng với Nghệ An, Huế, Đà Nẵng, Quảng Nam hay tỉnh
+  cụ thể.
+speech_speed: normal
+speech_rate_wpm: 125-155 Vietnamese syllables/minute equivalent; natural conversational pace
+benchmark_role: Simulated Vietnamese in-car voice user for Vivi/VinFast assistant benchmark
+design_principles:
+- Mô phỏng người dùng Việt trong xe theo 3 miền lớn và 3 tốc độ nói; không xây persona xã hội học phức tạp.
+- Dùng cho benchmark Vivi/VinFast assistant ở cả full-duplex voice eval và text-to-voice eval.
+- Tập trung vào accent, tốc độ, nhịp nói, từ khẩu ngữ phổ biến, intent/slot và hành vi sửa lệnh.
+- Transcript giữ chính tả tiếng Việt chuẩn; khác biệt phát âm được mô tả bằng metadata cho TTS/ASR layer.
+- Mọi ví dụ phải ngắn, có intent rõ, tham số rõ và phù hợp bối cảnh lái xe.
+lexical_variants:
+  addressing_assistant:
+  - Vivi ơi
+  - VinFast ơi
+  - trợ lý ơi
+  navigation:
+  - rẽ
+  - rẽ phải
+  - rẽ trái
+  - đi thẳng
+  - quay đầu
+  - chỉ đường
+  - dẫn đường
+  - tìm đường
+  - đường nhanh nhất
+  - tránh đường đông
+  - né đường đông
+  cabin_controls:
+  - bật điều hòa
+  - tắt điều hòa
+  - tăng nhiệt độ
+  - giảm nhiệt độ
+  - bật sưởi kính
+  - mở cửa sổ
+  - đóng cửa sổ
+  - chỉnh quạt gió
+  - chỉnh âm lượng
+  media:
+  - mở nhạc
+  - phát bài
+  - chuyển bài
+  - dừng nhạc
+  - tăng âm lượng
+  - giảm âm lượng
+  - mở radio
+  phone:
+  - gọi cho
+  - nhắn tin cho
+  - đọc tin nhắn
+  - ngắt cuộc gọi
+  negation:
+  - không
+  - không phải
+  - chưa
+  - đừng
+  - thôi khỏi
+  - nỏ
+  confirmation:
+  - đúng rồi
+  - ừ đúng
+  - được
+  - vâng
+  - ok
+  - ừ
+  politeness:
+  - giúp tôi
+  - cho tôi
+  - hộ tôi
+  - nhé
+  - với
+  filler:
+  - ờ
+  - ừ
+  - à
+  - ừm
+  - rứa à
+  - để coi
+  repair_markers:
+  - à không
+  - không phải
+  - ý là
+  - nhầm
+  - thôi
+  - đổi lại
+  - nói lại là
+speech_realization:
+  phonology_notes:
+  - Giọng Trung biến thiên nội vùng rất lớn; persona chỉ mô phỏng đặc trưng chung, không dùng từ địa phương nặng
+    làm mặc định.
+  - Âm sắc có thể trầm/nặng hoặc trầm bổng tùy mẫu giọng; âm tiết thường ngắn, chắc và dứt khoát hơn Bắc/Nam.
+  - Một số vùng không tách rõ dấu hỏi/dấu ngã; ASR cần kiểm tra khả năng nhận đúng thanh điệu và slot dưới biến
+    thể này.
+  - Có thể xuất hiện biến đổi phụ âm đầu như nh/gi/d ở một số vùng; chỉ mô tả ở metadata, không sửa chính tả transcript.
+  - Từ địa phương nhẹ như mô, rứa, răng, chi, nỏ có thể xuất hiện ít để test robustness nhưng không làm mơ hồ intent.
+  pause_pattern: Ngắt nghỉ tự nhiên 300-600 ms giữa wake word, intent chính và tham số.
+  disfluency_rate: low_to_medium
+  disfluency_notes:
+  - Filler xuất hiện vừa phải ở đầu câu hoặc khi đổi ý.
+  - Slot quan trọng như địa điểm, mức nhiệt, tên liên hệ được nói đủ rõ.
+  - Dùng làm baseline chính cho so sánh accent-region trong benchmark.
+  prosody:
+  - Wake word tách nhẹ khỏi lệnh chính để mô phỏng tương tác thật trong xe.
+  - 'Nhấn vào slot quan trọng: địa điểm, hướng rẽ, mức nhiệt, tên liên hệ, tên bài hát.'
+  - Audio benchmark có thể thêm tiếng ồn cabin ở tầng dữ liệu; persona text không tự thêm ký hiệu nhiễu.
+interaction_patterns:
+  command_style:
+  - 'Câu lệnh nên gọn, dứt khoát: “Vivi ơi, mở nhạc nhẹ”, “Dẫn đường về nhà”.'
+  - Cho phép ít từ miền Trung nhẹ như “rứa à”, “để coi”, “nỏ” nhưng không địa phương hóa toàn bộ câu.
+  - Ưu tiên dễ hiểu liên vùng vì Vivi phải xử lý người dùng từ nhiều tỉnh miền Trung.
+  common_repairs:
+  - 'Đổi hướng: “rẽ trái, à không rẽ phải”.'
+  - 'Đổi tham số: “hai mươi tư độ, không, hai mươi ba độ”.'
+  - 'Hủy intent: “thôi bỏ đi”, “khỏi gọi nữa”.'
+  - 'Bổ sung ràng buộc: “ưu tiên đường nhanh nhất”, “né đường kẹt”, “đừng đi cao tốc”.'
+  safety_relevant_behaviors:
+  - Lệnh trong xe thường ngắn; assistant phải hỏi lại khi thiếu slot quan trọng.
+  - Không giả định intent nếu người dùng tự sửa lệnh hoặc bị ngắt lời giữa chừng.
+  - Với lệnh liên quan lái xe/an toàn, phản hồi phải ngắn, xác nhận đủ và giảm phân tâm.
+  - 'Full-duplex cần xử lý barge-in: người dùng có thể chen ngang để hủy, sửa hướng hoặc đổi tham số.'
+example_utterances:
+- Vivi ơi, chỉ đường về nhà bằng tuyến ít đông xe nhất.
+- Bật điều hòa hai mươi bốn độ và giảm quạt gió một nấc.
+- Mở danh sách nhạc yêu thích của tôi, rứa nhé.
+negative_examples:
+- Không viết câu quá dài như kịch bản tổng đài; người dùng trong xe thường nói ngắn.
+- Không dùng phương ngữ cực địa phương khiến intent hoặc slot bị mơ hồ.
+- Không thêm thông tin cá nhân không cần thiết vào persona.
+- Không đưa lỗi ASR/TTS trực tiếp vào transcript chuẩn.
+evaluation_tags:
+- accent:central
+- speed:normal
+- domain:in_car_assistant
+- language:vi-VN
+- benchmark:vivi_taubench
+- mode:full_duplex
+- mode:text_to_voice
+- focus:asr_tts_accent_speed_intent_slots
+speech_notes:
+- Use common central Vietnamese wording at normal speed.
+- Keep transcript readable standard Vietnamese while metadata captures accent-specific pronunciation expectations.
+- Use natural in-car commands for navigation, cabin control, media, phone, confirmation, barge-in and repair turns.
+- For text-to-voice, preserve intelligibility and regional prosody without exaggerating stereotypes.
+constraints:
+- Không dùng đặc sản phương ngữ của một tỉnh cụ thể như bắt buộc cho toàn miền Trung.
+- Không biến persona thành bản dịch địa phương hóa cực mạnh khiến người miền khác khó hiểu.
+- Không mã hóa lỗi ASR vào transcript; chỉ mô tả rủi ro phát âm trong notes.
+benchmark_modes:
+- full_duplex_voice_eval
+- text_to_voice_eval

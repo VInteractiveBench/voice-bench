@@ -1,0 +1,739 @@
+[
+  {
+    "id": "base_020_climate_vague_cool",
+    "domain": "automotive",
+    "user_goal": "Hey VinFast, đặt điều hòa ghế lái 22 độ.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "climate_control",
+        "args": {
+          "device": "temp",
+          "value": "22",
+          "position": "driver"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "base_020_climate_vague_cool"
+    },
+    "expected_critical_slots": {
+      "temperature": "22",
+      "position": "driver"
+    },
+    "required_communication": true
+  },
+  {
+    "id": "base_015_defrost_drive",
+    "domain": "automotive",
+    "user_goal": "Bật sấy kính.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "climate_control",
+        "args": {
+          "device": "defrost",
+          "value": "true"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "base_015_defrost_drive"
+    },
+    "expected_critical_slots": {
+      "device": "defrost"
+    },
+    "required_communication": true
+  },
+  {
+    "id": "base_016_eco_drive_confirm",
+    "domain": "automotive",
+    "user_goal": "Chuyển chế độ lái eco.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "drive_system",
+        "args": {
+          "device": "drive_mode",
+          "value": "eco"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "base_016_eco_drive_confirm"
+    },
+    "expected_critical_slots": {
+      "drive_mode": "eco"
+    },
+    "required_communication": true
+  },
+  {
+    "id": "base_022_body_mirror_parked",
+    "domain": "automotive",
+    "user_goal": "Gập gương.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "body_control",
+        "args": {
+          "device": "mirror",
+          "value": "true"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "base_022_body_mirror_parked"
+    },
+    "expected_critical_slots": {
+      "device": "mirror"
+    },
+    "required_communication": true
+  },
+  {
+    "id": "base_023_audio_mute_all",
+    "domain": "automotive",
+    "user_goal": "Tắt toàn bộ âm thanh.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "audio_control",
+        "args": {
+          "device": "all",
+          "action": "mute"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "base_023_audio_mute_all"
+    },
+    "expected_critical_slots": {
+      "audio_source": "all"
+    },
+    "required_communication": true
+  },
+  {
+    "id": "base_024_drive_sport_confirm",
+    "domain": "automotive",
+    "user_goal": "Chuyển chế độ lái sport.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "drive_system",
+        "args": {
+          "device": "drive_mode",
+          "value": "sport"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "base_024_drive_sport_confirm"
+    },
+    "expected_critical_slots": {
+      "drive_mode": "sport"
+    },
+    "required_communication": true
+  },
+  {
+    "id": "base_025_comfort_perfume",
+    "domain": "automotive",
+    "user_goal": "Bật nước hoa mùi ocean.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "comfort_control",
+        "args": {
+          "device": "perfume_diffuser",
+          "value": "ocean"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "base_025_comfort_perfume"
+    },
+    "expected_critical_slots": {
+      "scent": "ocean"
+    },
+    "required_communication": true
+  },
+  {
+    "id": "disambiguation_001_warm_seat",
+    "domain": "automotive",
+    "user_goal": "Bật sưởi ghế lái mức 2.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "seat_control",
+        "args": {
+          "device": "seat_heat",
+          "value": "2",
+          "position": "driver"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "disambiguation_001_warm_seat"
+    },
+    "expected_critical_slots": {
+      "level": "2",
+      "position": "driver"
+    },
+    "required_communication": true
+  },
+  {
+    "id": "disambiguation_009_sunroof_percent",
+    "domain": "automotive",
+    "user_goal": "Mở cửa sổ trời 50 phần trăm.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "body_control",
+        "args": {
+          "device": "sunroof",
+          "value": "50"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "disambiguation_009_sunroof_percent"
+    },
+    "expected_critical_slots": {
+      "window_percent": "50"
+    },
+    "required_communication": true
+  },
+  {
+    "id": "disambiguation_012_fog_front_rear",
+    "domain": "automotive",
+    "user_goal": "Bật đèn sương mù phía sau.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "light_control",
+        "args": {
+          "device": "fog_light",
+          "value": "true",
+          "position": "rear"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "disambiguation_012_fog_front_rear"
+    },
+    "expected_critical_slots": {
+      "position": "rear"
+    },
+    "required_communication": true
+  },
+  {
+    "id": "navigation_base_001",
+    "domain": "navigation",
+    "user_goal": "Chỉ đường tới Vinmec Times City.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "compute_routes",
+        "args": {
+          "dest_lat": 20.997,
+          "dest_lng": 105.868,
+          "dest_name": "Vinmec Times City"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "navigation_base_001"
+    },
+    "expected_critical_slots": {
+      "poi_name": "Vinmec Times City"
+    },
+    "required_communication": true
+  },
+  {
+    "id": "navigation_base_002",
+    "domain": "navigation",
+    "user_goal": "Chỉ đường tới Vincom Times City.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "compute_routes",
+        "args": {
+          "dest_lat": 20.994,
+          "dest_lng": 105.868,
+          "dest_name": "Vincom Times City"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "navigation_base_002"
+    },
+    "expected_critical_slots": {
+      "poi_name": "Vincom Times City"
+    },
+    "required_communication": true
+  },
+  {
+    "id": "navigation_base_003",
+    "domain": "navigation",
+    "user_goal": "Tìm trạm sạc gần đây.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "search_places",
+        "args": {
+          "query": "trạm sạc",
+          "category": "charging_station",
+          "max_results": 5
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "navigation_base_003"
+    },
+    "expected_critical_slots": {
+      "category": "charging_station"
+    },
+    "required_communication": true
+  },
+  {
+    "id": "navigation_base_004",
+    "domain": "navigation",
+    "user_goal": "Tìm bệnh viện ở Quận 1.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "search_places",
+        "args": {
+          "query": "bệnh viện",
+          "category": "hospital",
+          "location_query": "Quận 1, TP. HCM"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "navigation_base_004"
+    },
+    "expected_critical_slots": {
+      "category": "hospital",
+      "location_query": "Quận 1, TP. HCM"
+    },
+    "required_communication": true
+  },
+  {
+    "id": "navigation_base_005",
+    "domain": "navigation",
+    "user_goal": "Kiểm tra giao thông đường Nguyễn Trãi.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "check_traffic",
+        "args": {
+          "location_query": "đường Nguyễn Trãi"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "navigation_base_005"
+    },
+    "expected_critical_slots": {
+      "location_query": "đường Nguyễn Trãi"
+    },
+    "required_communication": true
+  },
+  {
+    "id": "navigation_base_006",
+    "domain": "navigation",
+    "user_goal": "Hiển thị bản đồ 3D.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "map_control",
+        "args": {
+          "action": "set_view",
+          "view": "3d"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "navigation_base_006"
+    },
+    "expected_critical_slots": {
+      "view": "3d"
+    },
+    "required_communication": true
+  },
+  {
+    "id": "navigation_base_007",
+    "domain": "navigation",
+    "user_goal": "Đổi bản đồ sang giao diện vệ tinh.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "map_control",
+        "args": {
+          "action": "set_theme",
+          "theme": "satellite"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "navigation_base_007"
+    },
+    "expected_critical_slots": {
+      "theme": "satellite"
+    },
+    "required_communication": true
+  },
+  {
+    "id": "navigation_base_008",
+    "domain": "navigation",
+    "user_goal": "Tính tuyến nhanh tới sân bay Nội Bài.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "compute_routes",
+        "args": {
+          "dest_lat": 21.214,
+          "dest_lng": 105.807,
+          "dest_name": "Sân bay Nội Bài",
+          "routing_mode": "fast"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "navigation_base_008"
+    },
+    "expected_critical_slots": {
+      "poi_name": "Sân bay Nội Bài",
+      "routing_mode": "fast"
+    },
+    "required_communication": true
+  },
+  {
+    "id": "navigation_base_009",
+    "domain": "navigation",
+    "user_goal": "Lưu địa điểm này là cơ quan.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "saved_places",
+        "args": {
+          "action": "save",
+          "label": "work",
+          "lat": 21.028,
+          "lng": 105.854,
+          "title": "Cơ quan"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "navigation_base_009"
+    },
+    "expected_critical_slots": {
+      "label": "work"
+    },
+    "required_communication": true
+  },
+  {
+    "id": "navigation_base_010",
+    "domain": "navigation",
+    "user_goal": "Dừng dẫn đường.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "map_control",
+        "args": {
+          "action": "stop_navigation"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "navigation_base_010"
+    },
+    "expected_critical_slots": {
+      "navigation_action": "stop_navigation"
+    },
+    "required_communication": true
+  },
+  {
+    "id": "media_phone_base_001",
+    "domain": "media_phone",
+    "user_goal": "Phát nhạc Mỹ Tâm.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "media_control",
+        "args": {
+          "command": "play",
+          "target": "Mỹ Tâm",
+          "media_type": "music"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "media_phone_base_001"
+    },
+    "expected_critical_slots": {
+      "artist_name": "Mỹ Tâm"
+    },
+    "required_communication": true
+  },
+  {
+    "id": "media_phone_base_002",
+    "domain": "media_phone",
+    "user_goal": "Tìm bài Chúng ta của tương lai.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "media_control",
+        "args": {
+          "command": "search",
+          "target": "Chúng ta của tương lai",
+          "media_type": "music"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "media_phone_base_002"
+    },
+    "expected_critical_slots": {
+      "song_name": "Chúng ta của tương lai"
+    },
+    "required_communication": true
+  },
+  {
+    "id": "media_phone_base_003",
+    "domain": "media_phone",
+    "user_goal": "Chuyển bài tiếp theo.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "media_control",
+        "args": {
+          "command": "next"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "media_phone_base_003"
+    },
+    "expected_critical_slots": {
+      "media_command": "next"
+    },
+    "required_communication": true
+  },
+  {
+    "id": "media_phone_base_004",
+    "domain": "media_phone",
+    "user_goal": "Mở radio 91.0 FM.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "media_control",
+        "args": {
+          "command": "tune",
+          "target": "91.0",
+          "media_type": "radio"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "media_phone_base_004"
+    },
+    "expected_critical_slots": {
+      "radio_frequency": "91.0"
+    },
+    "required_communication": true
+  },
+  {
+    "id": "media_phone_base_005",
+    "domain": "media_phone",
+    "user_goal": "Gọi Nguyễn Hoàng Anh.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "phone_manager",
+        "args": {
+          "intent": "confirm_call",
+          "target": "Nguyễn Hoàng Anh"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "media_phone_base_005"
+    },
+    "expected_critical_slots": {
+      "contact_name": "Nguyễn Hoàng Anh"
+    },
+    "required_communication": true
+  },
+  {
+    "id": "media_phone_base_006",
+    "domain": "media_phone",
+    "user_goal": "Tìm liên hệ anh Nam.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "phone_manager",
+        "args": {
+          "intent": "search",
+          "target": "anh Nam"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "media_phone_base_006"
+    },
+    "expected_critical_slots": {
+      "contact_name": "anh Nam"
+    },
+    "required_communication": true
+  },
+  {
+    "id": "media_phone_base_007",
+    "domain": "media_phone",
+    "user_goal": "Xem cuộc gọi nhỡ.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "phone_manager",
+        "args": {
+          "intent": "history",
+          "history_filter": "missed"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "media_phone_base_007"
+    },
+    "expected_critical_slots": {
+      "history_filter": "missed"
+    },
+    "required_communication": true
+  },
+  {
+    "id": "media_phone_base_008",
+    "domain": "media_phone",
+    "user_goal": "Tìm nhà hàng ở Đà Nẵng.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "lifestyle",
+        "args": {
+          "query": "nhà hàng",
+          "category": "food",
+          "location": "Đà Nẵng"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "media_phone_base_008"
+    },
+    "expected_critical_slots": {
+      "location": "Đà Nẵng"
+    },
+    "required_communication": true
+  },
+  {
+    "id": "media_phone_base_009",
+    "domain": "media_phone",
+    "user_goal": "Tìm lịch chiếu phim Mai.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "movie",
+        "args": {
+          "query": "Mai",
+          "intent": "showtimes"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "media_phone_base_009"
+    },
+    "expected_critical_slots": {
+      "movie_name": "Mai"
+    },
+    "required_communication": true
+  },
+  {
+    "id": "media_phone_base_010",
+    "domain": "media_phone",
+    "user_goal": "Xem tử vi Bảo Bình hôm nay.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "zodiac",
+        "args": {
+          "sign": "bao_binh",
+          "topic": "daily"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "media_phone_base_010"
+    },
+    "expected_critical_slots": {
+      "zodiac_sign": "bao_binh"
+    },
+    "required_communication": true
+  }
+]

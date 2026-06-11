@@ -1,0 +1,13 @@
+condition_id: interaction_stress
+description: Cabin noise plus full-duplex interaction
+noise_sources:
+- cabin_ac
+- road_noise
+- low_volume_music
+snr_db_range:
+- 10
+- 20
+packet_loss_rate: 0.01
+muffling: mild
+barge_in_enabled: true
+backchannel_enabled: true

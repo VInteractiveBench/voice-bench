@@ -1,0 +1,7 @@
+condition_id: clean
+description: Clean voice baseline
+noise_sources: []
+snr_db_range: null
+packet_loss_rate: 0.0
+muffling: none
+barge_in_enabled: false

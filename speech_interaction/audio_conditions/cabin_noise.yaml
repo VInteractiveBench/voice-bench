@@ -1,0 +1,12 @@
+condition_id: cabin_noise
+description: Normal in-car noise
+noise_sources:
+- cabin_ac
+- road_noise
+- low_volume_music
+snr_db_range:
+- 12
+- 25
+packet_loss_rate: 0.0
+muffling: mild
+barge_in_enabled: false

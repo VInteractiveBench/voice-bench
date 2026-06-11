@@ -1,0 +1,28 @@
+[
+  {
+    "t_ms": 0,
+    "speaker": "user",
+    "event": "user_speech_start",
+    "text": "Gọi chị Mai."
+  },
+  {
+    "t_ms": 2600,
+    "speaker": "assistant",
+    "event": "assistant_speech_expected_start"
+  },
+  {
+    "t_ms": 3300,
+    "speaker": "user",
+    "event": "user_interrupt_start",
+    "overlap": true,
+    "text": "Không, gọi chị My."
+  },
+  {
+    "t_ms": 4000,
+    "event": "assistant_should_yield_by"
+  },
+  {
+    "t_ms": 4300,
+    "event": "tool_commit_allowed_after"
+  }
+]
