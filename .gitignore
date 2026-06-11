@@ -188,5 +188,5 @@ cython_debug/
 .pypirc
 
 results/
-
+/tests
 /data
