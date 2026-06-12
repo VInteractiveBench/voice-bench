@@ -9,7 +9,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from speech_interaction.io import load_base_tasks, load_overlays
+from src.io import load_base_tasks, load_overlays
+from src.evaluator.fdrc_evaluator import evaluate_fdrc_episode
+from src.evaluator.fdrc_contract import summarize_fdrc_contract
+from src.evaluator.retention_evaluator import evaluate_retention_episode
+from src.runner import episode_set_hash
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -156,6 +160,10 @@ def _rate(numerator: int, denominator: int) -> float | None:
     return numerator / denominator if denominator else None
 
 
+def _bool_rate(rows: list[dict[str, Any]], predicate) -> float | None:
+    return sum(1 for row in rows if predicate(row)) / len(rows) if rows else None
+
+
 def _values(rows: list[dict[str, Any]], field: str) -> list[str]:
     return sorted({str(row[field]) for row in rows if row.get(field) not in (None, "")})
 
@@ -173,6 +181,13 @@ def _run_kind(run_id: str) -> str:
 def _data_provenance(run_id: str, episodes: list[dict[str, Any]]) -> str:
     if not episodes:
         return "unknown"
+    if any(row.get("is_reference") for row in episodes):
+        return "reference"
+    explicit_kinds = {row.get("run_kind") for row in episodes if row.get("run_kind")}
+    if len(explicit_kinds) == 1:
+        kind = next(iter(explicit_kinds))
+        if kind in {"provider", "reference", "internal", "sample"}:
+            return str(kind)
     has_provider_identity = any(
         row.get("agent") or row.get("model")
         for row in episodes
@@ -255,12 +270,30 @@ def _percentile(values: list[int | float], percentile: float) -> float | None:
     return float(ordered[index])
 
 
-def _summarize_from_episodes(episodes: list[dict[str, Any]]) -> dict[str, Any]:
+def _summarize_from_episodes(
+    episodes: list[dict[str, Any]], track: str | None = None
+) -> dict[str, Any]:
+    if track:
+        episodes = [episode for episode in episodes if episode.get("benchmark_track") == track]
     metrics: dict[str, Any] = {
         "pass_at_1": _metric_from_episodes(episodes, "pass_at_1"),
         "tool_exact_match": _metric_from_episodes(episodes, "tool_exact_match"),
         "argument_exact_match": _metric_from_episodes(episodes, "argument_exact_match"),
         "state_match": _metric_from_episodes(episodes, "state_match"),
+        "policy_violation_rate": _bool_rate(
+            episodes, lambda episode: "POLICY_VIOLATION" in (episode.get("failure_types") or [])
+        ),
+        "tool_validation_error_rate": _bool_rate(
+            episodes, lambda episode: bool(episode.get("validation_errors"))
+        ),
+        "out_of_scope_tool_call_rate": _bool_rate(
+            episodes,
+            lambda episode: "OUT_OF_SCOPE_TOOL_CALL" in (episode.get("failure_types") or []),
+        ),
+        "hallucinated_tool_rate": _bool_rate(
+            episodes,
+            lambda episode: "TOOL_NOT_IN_WHITELIST" in (episode.get("failure_types") or []),
+        ),
     }
     tracks = set(_values(episodes, "benchmark_track"))
     if RETENTION_TRACK in tracks:
@@ -304,27 +337,111 @@ def _summarize_from_episodes(episodes: list[dict[str, Any]]) -> dict[str, Any]:
         fdrc_rows = [
             episode for episode in episodes if episode.get("benchmark_track") == FDRC_TRACK
         ]
-        latencies = [
-            _safe_number(episode.get("latency", {}).get("yield_latency_ms"))
-            for episode in fdrc_rows
-        ]
-        latency_values = [value for value in latencies if value is not None]
-        metrics.update(
+        metrics.update(summarize_fdrc_contract(fdrc_rows))
+    return metrics
+
+
+def _first_event_time_after(
+    events: list[dict[str, Any]], event_type: str, after_ms: int | None
+) -> int | None:
+    return next(
+        (
+            event.get("t_ms")
+            for event in events
+            if event.get("type") == event_type
+            and isinstance(event.get("t_ms"), int)
+            and (after_ms is None or event.get("t_ms", -1) >= after_ms)
+        ),
+        None,
+    )
+
+
+def _fdrc_voice_events_for_evaluation(
+    episode: dict[str, Any], overlay: dict[str, Any]
+) -> list[dict[str, Any]]:
+    events = [
+        {**event, "source": event.get("source") or "expected"}
+        for event in overlay.get("voice_timeline", [])
+        if isinstance(event, dict)
+    ]
+    normalized = [
+        event for event in episode.get("normalized_events", []) if isinstance(event, dict)
+    ]
+    for event in normalized:
+        event_type = event.get("type")
+        t_ms = event.get("t_ms")
+        if not isinstance(t_ms, int):
+            continue
+        if event_type == "assistant_speech_start":
+            events.append(
+                {"event": "assistant_speech_start", "t_ms": t_ms, "source": "observed"}
+            )
+        elif event_type == "assistant_speech_stop":
+            events.append(
+                {"event": "assistant_speech_stop", "t_ms": t_ms, "source": "observed"}
+            )
+        elif event_type == "user_audio_chunk_sent" and event.get("overlap"):
+            events.append(
+                {"event": "user_interrupt_start", "t_ms": t_ms, "source": "observed"}
+            )
+            events.append(
+                {"event": "repair_audio_start", "t_ms": t_ms, "source": "observed"}
+            )
+    interrupt = next(
+        (
+            event["t_ms"]
+            for event in events
+            if event.get("event") == "user_interrupt_start"
+            and event.get("source") == "observed"
+            and isinstance(event.get("t_ms"), int)
+        ),
+        None,
+    )
+    repair_transcript = _first_event_time_after(normalized, "user_transcript_done", interrupt)
+    if repair_transcript is not None:
+        events.append(
             {
-                "fdrc_pass_at_1": _mode_pass_rate(fdrc_rows),
-                "yield_latency_p50_ms": _percentile(latency_values, 0.5),
-                "yield_latency_p95_ms": _percentile(latency_values, 0.95),
-                "yield_latency_pass_rate": _rate(
-                    sum(
-                        "YIELD_LATENCY_TOO_HIGH"
-                        not in episode.get("failure_types", [])
-                        for episode in fdrc_rows
-                    ),
-                    len(fdrc_rows),
-                ),
+                "event": "repair_transcript_done",
+                "t_ms": repair_transcript,
+                "source": "observed",
             }
         )
-    return {key: value for key, value in metrics.items() if value is not None}
+    speech_stop = _first_event_time_after(normalized, "assistant_speech_stop", interrupt)
+    if interrupt is not None and speech_stop is not None:
+        events.append(
+            {"event": "assistant_yielded", "t_ms": speech_stop, "source": "observed"}
+        )
+    return sorted(events, key=lambda event: event.get("t_ms", 0))
+
+
+def _evaluation_view(episodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    tasks = load_base_tasks()
+    overlays = {row["speech_overlay_id"]: row for row in load_overlays()}
+    evaluated: list[dict[str, Any]] = []
+    for episode in episodes:
+        row = dict(episode)
+        overlay = overlays.get(row.get("speech_overlay_id"))
+        task = tasks.get(row.get("base_task_id"))
+        if overlay is None or task is None:
+            evaluated.append(row)
+            continue
+        if row.get("run_kind") is None and (row.get("agent") or row.get("model")):
+            row["run_kind"] = "provider"
+            row["is_reference"] = False
+        try:
+            if row.get("benchmark_track") == FDRC_TRACK:
+                if not (row.get("is_reference") or row.get("run_kind") in {"reference", "sample", "internal"}):
+                    row["voice_events"] = _fdrc_voice_events_for_evaluation(row, overlay)
+                row = evaluate_fdrc_episode(row, overlay, task)
+            elif row.get("benchmark_track") == RETENTION_TRACK:
+                row = evaluate_retention_episode(row, overlay, task)
+        except Exception as exc:
+            row.setdefault("failure_types", []).append("DASHBOARD_REEVALUATION_ERROR")
+            row["primary_failure_type"] = row.get("primary_failure_type") or "DASHBOARD_REEVALUATION_ERROR"
+            row["dashboard_reevaluation_error"] = str(exc)
+        row["failure_types"] = [str(failure) for failure in (row.get("failure_types") or [])]
+        evaluated.append(row)
+    return evaluated
 
 
 def _mode_pass_rate(rows: list[dict[str, Any]]) -> float | None:
@@ -414,7 +531,7 @@ def _top_latency_episodes(
 
 
 def _episode_row(episode: dict[str, Any]) -> dict[str, Any]:
-    failures = episode.get("failure_types", []) or []
+    failures = [str(failure) for failure in (episode.get("failure_types", []) or [])]
     latency = episode.get("latency", {}) if isinstance(episode.get("latency"), dict) else {}
     scores = episode.get("scores", {}) if isinstance(episode.get("scores"), dict) else {}
     critical_slot_result = (
@@ -466,7 +583,7 @@ def _timeline(episode: dict[str, Any]) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
     for event in episode.get("voice_events", []) or []:
         if isinstance(event, dict):
-            events.append({**event, "source": "voice"})
+            events.append({**event, "source": event.get("source") or "voice"})
     for event in episode.get("normalized_events", []) or []:
         if not isinstance(event, dict):
             continue
@@ -585,46 +702,75 @@ class DashboardStore:
             )
         return sorted(runs, key=lambda row: row.get("updated_at") or "", reverse=True)
 
-    def run_summary(self, run_id: str) -> dict[str, Any]:
+    def run_summary(self, run_id: str, track: str | None = None) -> dict[str, Any]:
         path, metrics, episodes, errors = self._load_run(run_id)
-        derived_metrics = _summarize_from_episodes(episodes)
-        display_metrics = {**derived_metrics, **metrics}
-        passed = sum(1 for episode in episodes if _score_pass(episode) is True)
-        failed = sum(1 for episode in episodes if _score_pass(episode) is False)
-        unscored = len(episodes) - passed - failed
+        episodes = _evaluation_view(episodes)
+        selected_track = track or _dominant_track(episodes)
+        scoped_episodes = [
+            episode
+            for episode in episodes
+            if not selected_track or episode.get("benchmark_track") == selected_track
+        ]
+        derived_metrics = _summarize_from_episodes(scoped_episodes, selected_track)
+        expected_hash = episode_set_hash(scoped_episodes)
+        metrics_hash = metrics.get("episode_set_hash")
+        metrics_valid = bool(metrics) and metrics_hash == expected_hash
+        metric_errors = []
+        if metrics and not metrics_valid:
+            metric_errors.append(
+                {
+                    "file": str(path / "metrics.json"),
+                    "line": None,
+                    "error": "metrics_hash_mismatch_or_missing",
+                }
+            )
+        errors = [*errors, *metric_errors]
+        display_metrics = {**derived_metrics, **metrics} if metrics_valid else derived_metrics
+        contract_status = (
+            display_metrics.get("metric_contract", {}).get("benchmark_status")
+            if isinstance(display_metrics.get("metric_contract"), dict)
+            else None
+        )
+        summary_status = contract_status or (
+            "partial" if errors or not metrics or not episodes else "complete"
+        )
+        passed = sum(1 for episode in scoped_episodes if _score_pass(episode) is True)
+        failed = sum(1 for episode in scoped_episodes if _score_pass(episode) is False)
+        unscored = len(scoped_episodes) - passed - failed
         provenance = _data_provenance(path.name, episodes)
         return {
             "run_id": path.name,
-            "status": "partial" if errors or not metrics or not episodes else "complete",
+            "status": summary_status,
             "updated_at": _mtime_iso([path / "metrics.json", path / "episodes.jsonl"]),
-            "benchmark_track": _dominant_track(episodes),
-            "benchmark_label": _track_label(_dominant_track(episodes)),
+            "benchmark_track": selected_track,
+            "benchmark_label": _track_label(selected_track),
             "run_kind": _run_kind(path.name),
             "data_provenance": provenance,
             "provenance_label": _provenance_label(provenance),
             "provenance_warning": _provenance_warning(provenance),
             "metrics": display_metrics,
             "derived_metrics": derived_metrics,
-            "metric_source": "metrics.json" if metrics else "episodes.jsonl",
-            "episode_count": len(episodes),
+            "metric_source": "metrics.json" if metrics_valid else "episodes.jsonl",
+            "metrics_hash_valid": metrics_valid,
+            "episode_count": len(scoped_episodes),
             "parse_errors": errors,
-            "metadata": _metadata(episodes),
+            "metadata": _metadata(scoped_episodes),
             "pass_fail": {"passed": passed, "failed": failed, "unscored": unscored},
-            "pass_by_domain": _group_pass_rate(episodes, "domain"),
-            "pass_by_mode": _group_pass_rate(episodes, "mode"),
-            "pass_by_track": _group_pass_rate(episodes, "benchmark_track"),
-            "pass_by_accent_region": _group_pass_rate(episodes, "accent_region"),
-            "pass_by_speech_speed": _group_pass_rate(episodes, "speech_speed"),
-            "pass_by_audio_condition": _group_pass_rate(episodes, "audio_condition_id"),
-            "primary_failure_counts": _failure_counts(episodes, primary=True),
-            "failure_counts": _failure_counts(episodes),
-            "latency_distribution": _latency_distribution(episodes),
-            "latency_summary": _latency_summary(episodes),
+            "pass_by_domain": _group_pass_rate(scoped_episodes, "domain"),
+            "pass_by_mode": _group_pass_rate(scoped_episodes, "mode"),
+            "pass_by_track": _group_pass_rate(scoped_episodes, "benchmark_track"),
+            "pass_by_accent_region": _group_pass_rate(scoped_episodes, "accent_region"),
+            "pass_by_speech_speed": _group_pass_rate(scoped_episodes, "speech_speed"),
+            "pass_by_audio_condition": _group_pass_rate(scoped_episodes, "audio_condition_id"),
+            "primary_failure_counts": _failure_counts(scoped_episodes, primary=True),
+            "failure_counts": _failure_counts(scoped_episodes),
+            "latency_distribution": _latency_distribution(scoped_episodes),
+            "latency_summary": _latency_summary(scoped_episodes),
             "top_yield_latency_episodes": _top_latency_episodes(
-                episodes, "yield_latency_ms"
+                scoped_episodes, "yield_latency_ms"
             ),
             "top_response_latency_episodes": _top_latency_episodes(
-                episodes, "response_latency_ms"
+                scoped_episodes, "response_latency_ms"
             ),
         }
 
@@ -639,6 +785,7 @@ class DashboardStore:
         passed: bool | None = None,
     ) -> dict[str, Any]:
         _, _, episodes, errors = self._load_run(run_id)
+        episodes = _evaluation_view(episodes)
         filtered = episodes
         if track:
             filtered = [episode for episode in filtered if episode.get("benchmark_track") == track]
@@ -665,6 +812,7 @@ class DashboardStore:
 
     def episode_detail(self, run_id: str, episode_id: str) -> dict[str, Any] | None:
         _, _, episodes, errors = self._load_run(run_id)
+        episodes = _evaluation_view(episodes)
         for episode in episodes:
             if str(episode.get("episode_id")) == episode_id:
                 return {
@@ -718,7 +866,7 @@ class DashboardStore:
             if track in overlay_counts and isinstance(domain, str):
                 overlay_counts[track][domain] = overlay_counts[track].get(domain, 0) + 1
         personas = []
-        for path in sorted((ROOT_DIR / "speech_interaction" / "personas").glob("*.yaml")):
+        for path in sorted((ROOT_DIR / "src" / "personas").glob("*.yaml")):
             fields = _read_top_level_yaml_fields(path)
             persona_id = fields.get("persona_id", path.stem)
             accent = fields.get("accent_region", persona_id.split("_")[1] if "_" in persona_id else "")
@@ -734,7 +882,7 @@ class DashboardStore:
                 }
             )
         audio_conditions = []
-        for path in sorted((ROOT_DIR / "speech_interaction" / "audio_conditions").glob("*.yaml")):
+        for path in sorted((ROOT_DIR / "src" / "audio_conditions").glob("*.yaml")):
             fields = _read_top_level_yaml_fields(path)
             condition_id = fields.get("condition_id", path.stem)
             audio_conditions.append(
@@ -785,7 +933,8 @@ class DashboardStore:
         output = self.results_dir / f"{preset['default_output_prefix']}_{stamp}"
         command = [
             sys.executable,
-            str(ROOT_DIR / preset["script"]),
+            "-m",
+            f"src.{Path(preset['script']).stem}",
             *preset["args"],
             "--domains",
             domains,

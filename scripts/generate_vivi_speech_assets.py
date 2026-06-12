@@ -8,7 +8,7 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-SPEECH = ROOT / "speech_interaction"
+SPEECH = ROOT / "src"
 
 
 def dump_json(path: Path, value) -> None:

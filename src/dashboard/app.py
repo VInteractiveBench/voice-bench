@@ -65,9 +65,9 @@ def create_app(results_dir: str = "results") -> FastAPI:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @app.get("/api/runs/{run_id}/summary")
-    def run_summary(run_id: str) -> dict[str, Any]:
+    def run_summary(run_id: str, track: str | None = None) -> dict[str, Any]:
         try:
-            return store.run_summary(run_id)
+            return store.run_summary(run_id, track=track)
         except RunNotFound as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 

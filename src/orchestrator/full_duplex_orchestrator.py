@@ -3,18 +3,18 @@ from __future__ import annotations
 import asyncio
 from typing import Literal
 
-from speech_interaction.adapters import (
+from src.adapters import (
     OpenAIRealtimeViviAdapter,
     OpenAITextViviAdapter,
     ViviAgentAdapter,
 )
-from speech_interaction.adapters.prompts import build_system_prompt
-from speech_interaction.audio import audio_io
-from speech_interaction.audio.audio_cache import AudioCache
-from speech_interaction.tools import MockToolServer, get_openai_tool_schemas
-from speech_interaction.schema import MODE_TO_AUDIO_CONDITION
-from speech_interaction.tools.vivi_tool_registry import get_domain_tools
-from speech_interaction.tick_scheduler import schedule_timeline
+from src.adapters.prompts import build_system_prompt
+from src.audio import audio_io
+from src.audio.audio_cache import AudioCache
+from src.tools import MockToolServer, get_openai_tool_schemas
+from src.schema import MODE_TO_AUDIO_CONDITION
+from src.tools.vivi_tool_registry import get_domain_tools
+from src.tick_scheduler import schedule_timeline
 
 
 AgentName = Literal["openai_text", "openai_realtime"]
@@ -91,7 +91,9 @@ async def run_agent_episode(
     return {
         "episode_id": f"{overlay['speech_overlay_id']}:{mode}:{persona}:{agent}:{model}",
         "agent": "openai_as_vivi",
+        "provider": "openai",
         "model": model,
+        "adapter": agent,
         "benchmark_track": overlay["benchmark_track"],
         "domain": task["domain"],
         "base_task_id": task["id"],
@@ -267,12 +269,38 @@ def _infer_captured_slots(overlay: dict, tool_calls: list[dict]) -> dict:
 
 
 def _voice_events_from_normalized(events: list[dict], overlay: dict) -> list[dict]:
-    voice_events = list(overlay.get("voice_timeline", []))
-    interrupt = next((e["t_ms"] for e in voice_events if e.get("event") == "user_interrupt_start"), None)
+    voice_events = [
+        {**event, "source": "expected"} for event in overlay.get("voice_timeline", [])
+    ]
+    for event in events:
+        event_type = event.get("type")
+        t_ms = event.get("t_ms")
+        if not isinstance(t_ms, int):
+            continue
+        if event_type == "assistant_speech_start":
+            voice_events.append({"event": "assistant_speech_start", "t_ms": t_ms, "source": "observed"})
+        elif event_type == "assistant_speech_stop":
+            voice_events.append({"event": "assistant_speech_stop", "t_ms": t_ms, "source": "observed"})
+        elif event_type == "user_audio_chunk_sent" and event.get("overlap"):
+            voice_events.append({"event": "user_interrupt_start", "t_ms": t_ms, "source": "observed"})
+            voice_events.append({"event": "repair_audio_start", "t_ms": t_ms, "source": "observed"})
+    interrupt = next(
+        (
+            e["t_ms"]
+            for e in voice_events
+            if e.get("event") == "user_interrupt_start" and e.get("source") == "observed"
+        ),
+        None,
+    )
+    repair_transcript = _first_event_time_after(events, "user_transcript_done", interrupt)
+    if repair_transcript is not None:
+        voice_events.append(
+            {"event": "repair_transcript_done", "t_ms": repair_transcript, "source": "observed"}
+        )
     speech_stop = _first_event_time_after(events, "assistant_speech_stop", interrupt)
     if interrupt is not None and speech_stop is not None:
-        voice_events.append({"event": "assistant_yielded", "t_ms": speech_stop})
-    return voice_events
+        voice_events.append({"event": "assistant_yielded", "t_ms": speech_stop, "source": "observed"})
+    return sorted(voice_events, key=lambda event: event.get("t_ms", 0))
 
 
 def _first_event_time(events: list[dict], event_type: str) -> int | None:

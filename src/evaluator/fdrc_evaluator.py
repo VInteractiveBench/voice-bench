@@ -1,11 +1,74 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from statistics import median
 
 from .common import evaluate_common, summarize_shared, tool_call_matches
+from .fdrc_contract import summarize_fdrc_contract
 from .failure_taxonomy import FailureType, primary_failure
 from .voice_event_evaluator import evaluate_yield, event_time
+
+
+def _is_reference_episode(result: dict) -> bool:
+    return bool(result.get("is_reference")) or result.get("run_kind") in {"reference", "sample", "internal"}
+
+
+def _observed_event_time(events: list[dict], event_name: str) -> int | None:
+    return next(
+        (
+            event.get("t_ms")
+            for event in events
+            if event.get("event") == event_name
+            and event.get("source") == "observed"
+            and isinstance(event.get("t_ms"), int)
+        ),
+        None,
+    )
+
+
+def _event_time_for_episode(result: dict, overlay: dict, event_name: str) -> int | None:
+    events = result.get("voice_events", [])
+    observed = _observed_event_time(events, event_name)
+    if observed is not None:
+        return observed
+    if _is_reference_episode(result):
+        if event_name == "assistant_speech_start":
+            return (
+                event_time(events, "assistant_speech_start")
+                or event_time(events, "assistant_speech_expected_start")
+                or event_time(overlay.get("voice_timeline", []), "assistant_speech_expected_start")
+            )
+        return event_time(events, event_name) or event_time(overlay.get("voice_timeline", []), event_name)
+    return None
+
+
+def _missing_observed_events(result: dict, expected_calls: list[dict]) -> list[str]:
+    if _is_reference_episode(result):
+        return []
+    events = result.get("voice_events", [])
+    required = [
+        "assistant_speech_start",
+        "user_interrupt_start",
+        "repair_audio_start",
+        "repair_transcript_done",
+    ]
+    if _observed_event_time(events, "assistant_yielded") is None and _observed_event_time(events, "assistant_speech_stop") is None:
+        required.append("assistant_yielded")
+    missing = [name for name in required if _observed_event_time(events, name) is None]
+    if expected_calls:
+        if not any(call.get("t_ms") is not None for call in result.get("tool_calls", [])):
+            missing.append("tool_call")
+        has_tool_result_event = any(
+            event.get("type") == "tool_result" and isinstance(event.get("t_ms"), int)
+            for event in result.get("normalized_events", [])
+        )
+        if (
+            len(result.get("tool_results", [])) != len(result.get("tool_calls", []))
+            or not has_tool_result_event
+        ):
+            missing.append("tool_result")
+    if not isinstance(result.get("final_state"), dict):
+        missing.append("final_state")
+    return missing
 
 
 def evaluate_fdrc_episode(episode: dict, overlay: dict, task: dict) -> dict:
@@ -24,22 +87,14 @@ def evaluate_fdrc_episode(episode: dict, overlay: dict, task: dict) -> dict:
         any(tool_call_matches(expected_call, call) for call in calls)
         for expected_call in expected_calls
     )
+    missing_observed = _missing_observed_events(result, expected_calls)
     yield_result = evaluate_yield(
         result.get("voice_events", []),
         overlay.get("voice_assertions", {}).get("max_yield_latency_ms", 700),
     )
-    interrupt = event_time(overlay.get("voice_timeline", []), "user_interrupt_start")
-    assistant_expected_start = event_time(
-        overlay.get("voice_timeline", []), "assistant_speech_expected_start"
-    )
-    assistant_actual_start = event_time(
-        result.get("voice_events", []), "assistant_speech_start"
-    )
-    assistant_start = (
-        assistant_actual_start
-        if assistant_actual_start is not None
-        else assistant_expected_start
-    )
+    interrupt = _event_time_for_episode(result, overlay, "user_interrupt_start")
+    assistant_start = _event_time_for_episode(result, overlay, "assistant_speech_start")
+    repair_transcript_done = _event_time_for_episode(result, overlay, "repair_transcript_done")
     assistant_speaking_before_interrupt = (
         interrupt is not None
         and assistant_start is not None
@@ -52,6 +107,15 @@ def evaluate_fdrc_episode(episode: dict, overlay: dict, task: dict) -> dict:
         call.get("t_ms") is None
         or (commit_allowed_after is not None and call["t_ms"] < commit_allowed_after)
         for call in calls
+    )
+    commit_before_repair_processed = (
+        not _is_reference_episode(result)
+        and any(
+            repair_transcript_done is None
+            or call.get("t_ms") is None
+            or call["t_ms"] < repair_transcript_done
+            for call in calls
+        )
     )
     duplicate_final_commit = any(
         sum(tool_call_matches(expected_call, call) for call in calls) > 1
@@ -74,8 +138,11 @@ def evaluate_fdrc_episode(episode: dict, overlay: dict, task: dict) -> dict:
         result["failure_types"].append(FailureType.CORRECTION_NOT_UPTAKEN)
     if not yield_result["passed"]:
         result["failure_types"].append(FailureType.YIELD_LATENCY_TOO_HIGH)
+    if missing_observed:
+        result["failure_types"].append(FailureType.MISSING_OBSERVED_EVENT)
     if (
         early_commit
+        or commit_before_repair_processed
         or continued_old_confirmation
         or duplicate_final_commit
         or not assistant_speaking_before_interrupt
@@ -92,6 +159,7 @@ def evaluate_fdrc_episode(episode: dict, overlay: dict, task: dict) -> dict:
         "forbidden_tool_called": forbidden_called,
         "duplicate_final_commit": duplicate_final_commit,
         "assistant_speaking_before_interrupt": assistant_speaking_before_interrupt,
+        "missing_observed_events": missing_observed,
         "tool_commit_time_ms": next(
             (c.get("t_ms") for c in calls if c.get("t_ms") is not None), None
         ),
@@ -112,37 +180,8 @@ def evaluate_fdrc_episode(episode: dict, overlay: dict, task: dict) -> dict:
     return result
 
 
-def _rate(rows: list[dict], predicate) -> float:
-    return sum(bool(predicate(row)) for row in rows) / len(rows) if rows else 0.0
-
-
-def _repair_flag(row: dict, field: str, default: bool = False) -> bool:
-    return bool(row.get("repair", {}).get(field, default))
-
-
-def _percentile(values: list[int], percentile: float) -> float | None:
-    if not values:
-        return None
-    ordered = sorted(values)
-    index = round((len(ordered) - 1) * percentile)
-    return ordered[index]
-
-
 def summarize_fdrc(episodes: list[dict]) -> dict:
-    latencies = [
-        e.get("latency", {}).get("yield_latency_ms")
-        for e in episodes
-        if e.get("latency", {}).get("yield_latency_ms") is not None
-    ]
-    cancel_rows = [e for e in episodes if e.get("repair", {}).get("final_intent") == "cancel"]
     return {
         **summarize_shared(episodes),
-        "fdrc_pass_at_1": _rate(episodes, lambda e: e["scores"]["final_pass"]),
-        "correction_uptake_rate": _rate(episodes, lambda e: _repair_flag(e, "correction_uptaken")),
-        "old_intent_suppression_rate": _rate(episodes, lambda e: not _repair_flag(e, "old_intent_committed")),
-        "forbidden_tool_call_rate": _rate(episodes, lambda e: _repair_flag(e, "forbidden_tool_called")),
-        "cancel_success_rate": _rate(cancel_rows, lambda e: not _repair_flag(e, "forbidden_tool_called")),
-        "yield_latency_p50_ms": median(latencies) if latencies else None,
-        "yield_latency_p95_ms": _percentile(latencies, 0.95),
-        "yield_latency_pass_rate": _rate(episodes, lambda e: FailureType.YIELD_LATENCY_TOO_HIGH not in e["failure_types"]),
+        **summarize_fdrc_contract(episodes),
     }

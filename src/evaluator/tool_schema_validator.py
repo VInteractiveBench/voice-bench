@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from speech_interaction.tools.vivi_tool_registry import SPECS
+from src.tools.vivi_tool_registry import SPECS
 
 def _numeric_string(value: Any, low: float, high: float) -> bool:
     try:

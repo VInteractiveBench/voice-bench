@@ -31,14 +31,14 @@ def main() -> int:
         print("FAIL: OPENAI_API_KEY missing")
         return 1
 
-    from speech_interaction.io import load_base_tasks, load_overlays
-    from speech_interaction.runner import run_agent_episodes
-    from speech_interaction.evaluator.retention_evaluator import evaluate_retention_episode
-    from speech_interaction.evaluator.fdrc_evaluator import evaluate_fdrc_episode
+    from src.io import load_base_tasks, load_overlays
+    from src.runner import run_agent_episodes
+    from src.evaluator.retention_evaluator import evaluate_retention_episode
+    from src.evaluator.fdrc_evaluator import evaluate_fdrc_episode
 
     model = os.getenv("SMOKE_REALTIME_MODEL", "gpt-realtime")
     tasks = load_base_tasks()
-    overlays = load_overlays("speech_interaction/speech_task_overlays.jsonl")
+    overlays = load_overlays("src/speech_task_overlays.jsonl")
     retention = next(o for o in overlays if o["benchmark_track"] == "text_to_voice_retention")
     fdrc = next(o for o in overlays if o["benchmark_track"] == "full_duplex_repair_to_commit")
 

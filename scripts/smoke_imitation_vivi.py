@@ -31,15 +31,15 @@ def main() -> int:
         print("FAIL: OPENAI_API_KEY missing")
         return 1
 
-    from speech_interaction.io import load_base_tasks, load_overlays
-    from speech_interaction.runner import run_agent_episodes
-    from speech_interaction.evaluator.retention_evaluator import evaluate_retention_episode
+    from src.io import load_base_tasks, load_overlays
+    from src.runner import run_agent_episodes
+    from src.evaluator.retention_evaluator import evaluate_retention_episode
 
     model = os.getenv("SMOKE_MODEL", "gpt-4.1-mini")
     tasks = load_base_tasks()
     overlays = [
         o
-        for o in load_overlays("speech_interaction/speech_task_overlays.jsonl")
+        for o in load_overlays("src/speech_task_overlays.jsonl")
         if o["benchmark_track"] == "text_to_voice_retention"
     ]
     target = overlays[0]

@@ -210,6 +210,12 @@ conda run -n base python scripts\generate_vivi_speech_assets.py
 
 ## Chạy Benchmarks
 
+### Reliability Guardrails
+
+Performance metrics are valid only when they are derived from `episodes.jsonl` and the displayed `metrics.json` has a matching `episode_set_hash`.
+Reference-agent, sample, and internal runs are evaluator/plumbing checks; they are stamped with non-provider provenance and must not be reported as Vivi or provider performance.
+The dashboard scopes KPIs to the selected benchmark track and ignores stale `metrics.json` values when their hash does not match the selected episode set.
+
 ### Reference-Agent Verification
 
 Reference-agent là oracle synthetic để kiểm tra evaluator/plumbing. Không báo cáo các kết quả này như performance thật của Vivi hoặc model.

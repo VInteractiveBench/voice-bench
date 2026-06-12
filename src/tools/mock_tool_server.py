@@ -5,9 +5,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from speech_interaction.evaluator.tool_schema_validator import validate_tool_schema
-from speech_interaction.evaluator.tool_scope_validator import validate_tool_scope
-from speech_interaction.io import read_json, write_jsonl
+from src.evaluator.tool_schema_validator import validate_tool_schema
+from src.evaluator.tool_scope_validator import validate_tool_scope
+from src.io import read_json, write_jsonl
 
 
 @dataclass
@@ -107,12 +107,10 @@ class MockToolServer:
         elif tool in {"lifestyle", "movie", "zodiac"}:
             self.state.setdefault("media_phone", {})[tool] = deepcopy(args)
 
-        expected = self.overlay.get("expected_tool_calls", self.task.get("expected_tool_calls", []))
-        if self._matches_expected_prefix(expected):
-            target_state = self.overlay.get(
-                "expected_final_state", self.task.get("expected_final_state", {})
-            )
-            self.state.update(deepcopy(target_state))
+        if self.overlay.get("benchmark_track") == "full_duplex_repair_to_commit":
+            self.state["committed_intent"] = tool
+        else:
+            self.state["committed_intent"] = self.task.get("id")
 
     def _matches_expected_prefix(self, expected: list[dict]) -> bool:
         if len(self.tool_call_log) != len(expected):

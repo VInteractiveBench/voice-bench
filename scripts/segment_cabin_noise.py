@@ -19,7 +19,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from speech_interaction.audio import audio_io  # noqa: E402
+from src.audio import audio_io  # noqa: E402
 
 CABIN_DIR = ROOT / "data" / "voice" / "cabin-sound"
 SEGMENT_DIR = CABIN_DIR / "segments"

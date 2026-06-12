@@ -7,10 +7,10 @@ from __future__ import annotations
 
 import numpy as np
 
-from speech_interaction.audio import audio_io
-from speech_interaction.audio.noise_mixer import NoiseMixer
-from speech_interaction.audio.tts_client import ViviTTS
-from speech_interaction.audio.audio_cache import AudioCache
+from src.audio import audio_io
+from src.audio.noise_mixer import NoiseMixer
+from src.audio.tts_client import ViviTTS
+from src.audio.audio_cache import AudioCache
 
 
 def _tone(freq: float, seconds: float, sr: int) -> np.ndarray:

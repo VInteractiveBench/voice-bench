@@ -3,14 +3,18 @@ from __future__ import annotations
 import csv
 import json
 import asyncio
+import hashlib
 from collections import Counter
 from copy import deepcopy
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
 from .io import load_base_tasks, load_overlays, read_jsonl, write_json, write_jsonl
 from .orchestrator.full_duplex_orchestrator import run_agent_episode
 from .schema import MODE_TO_AUDIO_CONDITION, invalid_episode_result, validate_episode_log
+
+REFERENCE_KINDS = {"reference", "sample", "internal"}
 
 
 def select_overlays(path: str, track: str, domains: set[str] | None = None) -> list[dict]:
@@ -37,6 +41,13 @@ def reference_episode(task: dict, overlay: dict, mode: str, persona: str) -> dic
         "accent_region": persona_parts[0],
         "speech_speed": persona_parts[1],
         "audio_condition_id": MODE_TO_AUDIO_CONDITION[mode],
+        "run_kind": "reference",
+        "is_reference": True,
+        "agent": "reference_agent",
+        "provider": None,
+        "model": None,
+        "adapter": "reference_agent",
+        "source_episode_log": None,
         "initial_state": deepcopy(task.get("initial_state", {})),
         "final_state": deepcopy(overlay.get("expected_final_state", task.get("expected_final_state", {}))),
         "user_transcript": [overlay.get("spoken_utterance") or overlay.get("initial_spoken_utterance", "")],
@@ -51,6 +62,83 @@ def reference_episode(task: dict, overlay: dict, mode: str, persona: str) -> dic
         "scores": {},
         "failure_types": [],
     }
+
+
+def infer_run_kind(
+    *,
+    reference_agent: bool,
+    agent: str | None,
+    episode_logs: str | None,
+    output: str,
+) -> str:
+    name = Path(output).name
+    if reference_agent:
+        return "reference"
+    if name.startswith("_") or "internal" in name:
+        return "internal"
+    if "sample" in name:
+        return "sample"
+    if agent:
+        return "provider"
+    if episode_logs:
+        return "imported"
+    return "unknown"
+
+
+def _episode_hash_payload(episode: dict) -> dict:
+    return {key: value for key, value in episode.items() if key != "episode_set_hash"}
+
+
+def episode_set_hash(episodes: list[dict]) -> str:
+    payload = json.dumps(
+        [_episode_hash_payload(episode) for episode in episodes],
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def dominant_track(episodes: list[dict]) -> str | None:
+    tracks = Counter(
+        episode.get("benchmark_track")
+        for episode in episodes
+        if episode.get("benchmark_track")
+    )
+    return tracks.most_common(1)[0][0] if tracks else None
+
+
+def annotate_episodes(
+    episodes: list[dict],
+    *,
+    run_id: str,
+    run_kind: str,
+    source_episode_log: str | None,
+    agent: str | None = None,
+    model: str | None = None,
+    provider: str | None = None,
+    adapter: str | None = None,
+    created_at: str | None = None,
+) -> list[dict]:
+    stamped = []
+    created = created_at or datetime.now(timezone.utc).isoformat()
+    is_reference = run_kind in REFERENCE_KINDS
+    for episode in episodes:
+        row = deepcopy(episode)
+        row["run_id"] = run_id
+        row["run_kind"] = run_kind
+        row["is_reference"] = bool(row.get("is_reference", is_reference))
+        row["agent"] = agent if agent is not None else row.get("agent")
+        row["provider"] = provider if provider is not None else row.get("provider")
+        row["model"] = model if model is not None else row.get("model")
+        row["adapter"] = adapter if adapter is not None else row.get("adapter")
+        row["created_at"] = created
+        row["source_episode_log"] = source_episode_log
+        stamped.append(row)
+    digest = episode_set_hash(stamped)
+    for row in stamped:
+        row["episode_set_hash"] = digest
+    return stamped
 
 
 def load_or_build_episodes(
@@ -145,7 +233,9 @@ def evaluate_episodes(
     return evaluated
 
 
-def merge_existing_episodes(output: str, episodes: list[dict]) -> list[dict]:
+def merge_existing_episodes(output: str, episodes: list[dict], *, enabled: bool = True) -> list[dict]:
+    if not enabled:
+        return episodes
     path = Path(output) / "episodes.jsonl"
     if not path.exists():
         return episodes
@@ -165,14 +255,83 @@ def merge_existing_episodes(output: str, episodes: list[dict]) -> list[dict]:
     return list(merged.values())
 
 
+def metrics_with_metadata(episodes: list[dict], metrics: dict) -> dict:
+    digest = episode_set_hash(episodes)
+    run_ids = sorted({str(episode.get("run_id")) for episode in episodes if episode.get("run_id")})
+    run_kinds = sorted({str(episode.get("run_kind")) for episode in episodes if episode.get("run_kind")})
+    tracks = {episode.get("benchmark_track") for episode in episodes if episode.get("benchmark_track")}
+    return {
+        **metrics,
+        "benchmark_track": dominant_track(episodes),
+        "episode_set_hash": digest,
+        "run_metadata": {
+            "run_id": run_ids[0] if len(run_ids) == 1 else None,
+            "run_kind": run_kinds[0] if len(run_kinds) == 1 else None,
+            "is_reference": any(bool(episode.get("is_reference")) for episode in episodes),
+            "provider_episode_count": sum(
+                1 for episode in episodes if episode.get("run_kind") == "provider"
+            ),
+            "reference_episode_count": sum(
+                1 for episode in episodes if episode.get("run_kind") in REFERENCE_KINDS
+            ),
+            "mixed_track": len(tracks) > 1,
+            "episode_count": len(episodes),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        },
+    }
+
+
 def save_results(output: str, episodes: list[dict], metrics: dict) -> None:
     target = Path(output)
     target.mkdir(parents=True, exist_ok=True)
     write_jsonl(target / "episodes.jsonl", episodes)
-    write_json(target / "metrics.json", metrics)
+    write_json(target / "metrics.json", metrics_with_metadata(episodes, metrics))
 
 
-def generate_report(retention_metrics: dict, fdrc_metrics: dict, episodes: list[dict], output: str) -> None:
+def _episode_kind(episode: dict) -> str:
+    if episode.get("is_reference"):
+        return "reference"
+    return str(episode.get("run_kind") or "unknown")
+
+
+def reliability_summary(episodes: list[dict]) -> dict:
+    kinds = Counter(_episode_kind(episode) for episode in episodes)
+    tracks = {episode.get("benchmark_track") for episode in episodes if episode.get("benchmark_track")}
+    return {
+        "provider_count": kinds.get("provider", 0),
+        "reference_count": kinds.get("reference", 0)
+        + kinds.get("sample", 0)
+        + kinds.get("internal", 0),
+        "unknown_count": kinds.get("unknown", 0),
+        "incomplete_retention_pairs": sum(
+            1
+            for episode in episodes
+            if episode.get("benchmark_track") == "text_to_voice_retention"
+            and episode.get("retention_pair_complete") is False
+        ),
+        "invalid_fdrc_timing_episodes": sum(
+            1
+            for episode in episodes
+            if episode.get("benchmark_track") == "full_duplex_repair_to_commit"
+            and "MISSING_OBSERVED_EVENT" in (episode.get("failure_types") or [])
+        ),
+        "mixed_track": len(tracks) > 1,
+    }
+
+
+def generate_report(
+    retention_metrics: dict,
+    fdrc_metrics: dict,
+    episodes: list[dict],
+    output: str,
+    *,
+    allow_reference: bool = False,
+) -> None:
+    if not allow_reference and any(_episode_kind(episode) != "provider" for episode in episodes):
+        raise ValueError(
+            "Report inputs include reference, sample, internal, imported, or unknown episodes. "
+            "Pass --allow-reference to generate a non-performance report."
+        )
     target = Path(output)
     target.mkdir(parents=True, exist_ok=True)
     failures = [e for e in episodes if not e.get("scores", {}).get("final_pass")]
@@ -182,10 +341,17 @@ def generate_report(retention_metrics: dict, fdrc_metrics: dict, episodes: list[
     failure_counts = Counter(
         failure for episode in failures for failure in episode.get("failure_types", [])
     )
+    reliability = reliability_summary(episodes)
     lines = [
         "# Vivi-τVoice-CarBench-VN Report",
         "",
         "Synthetic reference-agent runs validate benchmark plumbing only and must not be reported as Vivi model performance.",
+        "",
+        "## Reliability Summary",
+        "",
+        "| Field | Value |",
+        "|---|---:|",
+        *[f"| {key} | {value} |" for key, value in reliability.items()],
         "",
         "## Text-to-Voice Capability Retention",
         "",

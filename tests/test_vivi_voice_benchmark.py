@@ -3,15 +3,20 @@ from copy import deepcopy
 import json
 from pathlib import Path
 
-from speech_interaction.evaluator.failure_taxonomy import FailureType
-from speech_interaction.evaluator.fdrc_evaluator import evaluate_fdrc_episode
-from speech_interaction.evaluator.retention_evaluator import evaluate_retention_episode
-from speech_interaction.evaluator.tool_schema_validator import validate_tool_schema
-from speech_interaction.evaluator.tool_scope_validator import validate_tool_scope
-from speech_interaction.io import load_base_tasks, load_overlays
-from speech_interaction.runner import evaluate_episodes, merge_existing_episodes, reference_episode
-from speech_interaction.schema import preflight_validate_assets
-from speech_interaction.tools import MockToolServer, get_openai_tool_schemas
+import pytest
+
+from src.evaluator.failure_taxonomy import FailureType
+from src.evaluator.fdrc_evaluator import evaluate_fdrc_episode
+from src.evaluator.retention_evaluator import (
+    evaluate_retention_episode,
+    summarize_retention,
+)
+from src.evaluator.tool_schema_validator import validate_tool_schema
+from src.evaluator.tool_scope_validator import validate_tool_scope
+from src.io import load_base_tasks, load_overlays
+from src.runner import evaluate_episodes, merge_existing_episodes, reference_episode
+from src.schema import preflight_validate_assets
+from src.tools import MockToolServer, get_openai_tool_schemas
 
 
 def test_mvp_overlay_scope_and_distribution():
@@ -66,10 +71,13 @@ def test_tool_scope_distinguishes_excluded_from_hallucinated():
 
 def test_episode_evaluator_preserves_scope_failure_classification():
     tasks = load_base_tasks()
-    overlay = next(
+    retention_overlays = [
         row for row in load_overlays() if row["benchmark_track"] == "text_to_voice_retention"
-    )
+    ]
+    overlay = retention_overlays[0]
+    incomplete_overlay = retention_overlays[1]
     task = tasks[overlay["base_task_id"]]
+    incomplete_task = tasks[incomplete_overlay["base_task_id"]]
     episode = reference_episode(task, overlay, "clean_voice", "vi_north_normal")
     episode["tool_calls"] = [{"tool": "weather", "args": {"location": "Hà Nội"}}]
     episode["tool_results"] = [{"success": True}]
@@ -157,6 +165,55 @@ def test_reference_retention_episode_passes_and_slot_corruption_fails():
     failed = evaluate_retention_episode(corrupted, overlay, task)
     assert failed["scores"]["final_pass"] == 0
     assert FailureType.CRITICAL_SLOT_ERROR in failed["failure_types"]
+
+
+def test_retention_summary_tracks_complete_and_incomplete_pairs():
+    tasks = load_base_tasks()
+    retention_overlays = [
+        row for row in load_overlays() if row["benchmark_track"] == "text_to_voice_retention"
+    ]
+    overlay = retention_overlays[0]
+    incomplete_overlay = retention_overlays[1]
+    task = tasks[overlay["base_task_id"]]
+    incomplete_task = tasks[incomplete_overlay["base_task_id"]]
+    complete = [
+        evaluate_retention_episode(
+            reference_episode(task, overlay, mode, "vi_north_normal"), overlay, task
+        )
+        for mode in ("text_baseline", "clean_voice", "realistic_cabin_voice")
+    ]
+    incomplete = evaluate_retention_episode(
+        reference_episode(incomplete_task, incomplete_overlay, "clean_voice", "vi_south_normal"),
+        incomplete_overlay,
+        incomplete_task,
+    )
+
+    summary = summarize_retention([*complete, incomplete])
+    assert summary["complete_pair_count"] == 1
+    assert summary["incomplete_pair_count"] == 1
+    assert all(row["retention_pair_id"] for row in complete)
+    assert complete[0]["retention_pair_complete"] is True
+    assert incomplete["retention_pair_complete"] is False
+
+
+def test_retention_zero_critical_slots_reports_na_accuracy():
+    episode = {
+        "mode": "text_baseline",
+        "benchmark_track": "text_to_voice_retention",
+        "domain": "automotive",
+        "base_task_id": "base_without_slots",
+        "speech_overlay_id": "overlay_without_slots",
+        "scores": {
+            "final_pass": 1,
+            "tool_exact_match": 1,
+            "argument_exact_match": 1,
+            "state_match": 1,
+        },
+        "failure_types": [],
+        "validation_errors": [],
+        "critical_slot_result": {"passed": True, "correct": 0, "total": 0},
+    }
+    assert summarize_retention([episode])["critical_slot_accuracy"] is None
 
 
 def test_retention_missing_required_communication_fails():
@@ -251,6 +308,47 @@ def test_fdrc_detects_continued_old_confirmation():
     assert FailureType.POLICY_VIOLATION in result["failure_types"]
 
 
+def test_fdrc_provider_requires_observed_timing_events():
+    tasks = load_base_tasks()
+    overlay = next(row for row in load_overlays() if row["speech_overlay_id"] == "fdrc_vehicle_001")
+    task = tasks[overlay["base_task_id"]]
+    episode = reference_episode(
+        task, overlay, "full_duplex_repair_to_commit", "vi_north_normal"
+    )
+    episode["is_reference"] = False
+    episode["run_kind"] = "provider"
+
+    result = evaluate_fdrc_episode(episode, overlay, task)
+    assert result["scores"]["final_pass"] == 0
+    assert FailureType.MISSING_OBSERVED_EVENT in result["failure_types"]
+    assert "assistant_speech_start" in result["repair"]["missing_observed_events"]
+
+
+def test_fdrc_provider_passes_with_observed_repair_to_commit_lifecycle():
+    tasks = load_base_tasks()
+    overlay = next(row for row in load_overlays() if row["speech_overlay_id"] == "fdrc_vehicle_001")
+    task = tasks[overlay["base_task_id"]]
+    episode = reference_episode(
+        task, overlay, "full_duplex_repair_to_commit", "vi_north_normal"
+    )
+    episode["is_reference"] = False
+    episode["run_kind"] = "provider"
+    episode["voice_events"] = [
+        {"event": "assistant_speech_start", "t_ms": 2600, "source": "observed"},
+        {"event": "user_interrupt_start", "t_ms": 3300, "source": "observed"},
+        {"event": "repair_audio_start", "t_ms": 3300, "source": "observed"},
+        {"event": "assistant_yielded", "t_ms": 3700, "source": "observed"},
+        {"event": "repair_transcript_done", "t_ms": 4200, "source": "observed"},
+    ]
+    episode["normalized_events"] = [
+        {"type": "tool_result", "t_ms": 4610, "tool": episode["tool_calls"][0]["tool"]}
+    ]
+
+    result = evaluate_fdrc_episode(episode, overlay, task)
+    assert result["scores"]["final_pass"] == 1
+    assert result["latency"]["yield_latency_ms"] == 400
+
+
 def test_merge_existing_episodes_deduplicates_by_episode_id(tmp_path):
     task = load_base_tasks()["navigation_base_010"]
     overlay = next(row for row in load_overlays() if row["base_task_id"] == "navigation_base_010")
@@ -277,10 +375,13 @@ def test_all_overlay_tools_are_official_and_in_scope():
 
 
 def test_automotive_manifest_preserves_domain_expected_actions():
+    manifest_path = Path("data/tau2/domains/automotive/tasks.json")
+    if not manifest_path.exists():
+        pytest.skip("Automotive tau2 source fixture is not present in this checkout")
     source = {
         row["id"]: row
         for row in json.loads(
-            Path("data/tau2/domains/automotive/tasks.json").read_text(encoding="utf-8")
+            manifest_path.read_text(encoding="utf-8")
         )
     }
     for task in load_base_tasks().values():

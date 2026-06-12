@@ -16,7 +16,7 @@ def main() -> None:
     args = parser.parse_args()
     os.environ["VIVI_DASHBOARD_RESULTS_DIR"] = args.results_dir
     uvicorn.run(
-        "speech_interaction.dashboard.app:create_app",
+        "src.dashboard.app:create_app",
         host=args.host,
         port=args.port,
         factory=True,

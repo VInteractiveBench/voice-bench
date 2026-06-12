@@ -3,10 +3,10 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any
 
-from speech_interaction.evaluator.failure_taxonomy import FailureType, primary_failure
-from speech_interaction.evaluator.tool_schema_validator import validate_tool_schema
-from speech_interaction.evaluator.tool_scope_validator import validate_tool_scope
-from speech_interaction.evaluator.voice_event_evaluator import event_time as _event_time
+from src.evaluator.failure_taxonomy import FailureType, primary_failure
+from src.evaluator.tool_schema_validator import validate_tool_schema
+from src.evaluator.tool_scope_validator import validate_tool_scope
+from src.evaluator.voice_event_evaluator import event_time as _event_time
 
 ValidationIssue = dict[str, Any]
 

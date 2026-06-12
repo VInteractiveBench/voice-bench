@@ -665,7 +665,9 @@ async function loadRuns() {
 async function loadRun(runId) {
   if (!runId) return;
   state.selectedRun = runId;
-  state.summary = await fetchJson(`/api/runs/${encodeURIComponent(runId)}/summary`);
+  const params = new URLSearchParams();
+  params.set("track", selectedTrack());
+  state.summary = await fetchJson(`/api/runs/${encodeURIComponent(runId)}/summary?${params.toString()}`);
   state.quickFilter = null;
   renderSummary();
   await loadEpisodes();

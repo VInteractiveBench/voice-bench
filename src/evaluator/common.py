@@ -3,7 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-from speech_interaction.io import deep_subset
+from src.io import deep_subset
 
 from .failure_taxonomy import FailureType, primary_failure
 from .tool_schema_validator import validate_tool_schema

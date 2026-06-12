@@ -7,13 +7,25 @@ from typing import Any, Iterable
 ROOT = Path(__file__).resolve().parent
 
 
+def resolve_asset_path(path: str | Path) -> Path:
+    target = Path(path)
+    if target.exists():
+        return target
+    parts = target.parts
+    if parts and parts[0] == "src":
+        candidate = ROOT.joinpath(*parts[1:])
+        if candidate.exists():
+            return candidate
+    return target
+
+
 def read_json(path: str | Path) -> Any:
-    return json.loads(Path(path).read_text(encoding="utf-8"))
+    return json.loads(resolve_asset_path(path).read_text(encoding="utf-8"))
 
 
 def read_jsonl(path: str | Path) -> list[dict]:
     rows = []
-    for line in Path(path).read_text(encoding="utf-8").splitlines():
+    for line in resolve_asset_path(path).read_text(encoding="utf-8").splitlines():
         if line.strip():
             rows.append(json.loads(line))
     return rows

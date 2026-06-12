@@ -2,8 +2,12 @@ import json
 
 from fastapi.testclient import TestClient
 
-from speech_interaction.dashboard.app import create_app
-from speech_interaction.dashboard.service import DashboardStore
+from src.dashboard.app import create_app
+from src.dashboard.service import DashboardStore, FDRC_TRACK
+from src.evaluator.fdrc_contract import FDRC_REQUIRED_METRICS
+from src.fdrc_run_inspector import compare_layers, debug_rows
+from src.io import load_base_tasks, load_overlays
+from src.runner import metrics_with_metadata, reference_episode
 
 
 def write_json(path, value):
@@ -58,11 +62,40 @@ def sample_episode(**overrides):
     return episode
 
 
+def sample_fdrc_episode(**overrides):
+    tasks = load_base_tasks()
+    overlay = next(row for row in load_overlays() if row["speech_overlay_id"] == "fdrc_vehicle_001")
+    task = tasks[overlay["base_task_id"]]
+    episode = reference_episode(
+        task, overlay, "full_duplex_repair_to_commit", "vi_north_normal"
+    )
+    episode.update(
+        {
+            "run_kind": "provider",
+            "is_reference": False,
+            "agent": "openai_as_vivi",
+            "provider": "openai",
+            "model": "gpt-realtime-mini",
+            "adapter": "openai_realtime",
+            "normalized_events": [
+                {"type": "assistant_speech_start", "t_ms": 2600},
+                {"type": "user_audio_chunk_sent", "t_ms": 3300, "overlap": True},
+                {"type": "assistant_speech_stop", "t_ms": 3700},
+                {"type": "user_transcript_done", "t_ms": 4200},
+                {"type": "tool_result", "t_ms": 4610, "tool": episode["tool_calls"][0]["tool"]},
+            ],
+        }
+    )
+    episode.update(overrides)
+    return episode
+
+
 def test_dashboard_store_lists_runs_and_preserves_null_metrics(tmp_path):
     run = tmp_path / "run_a"
     run.mkdir()
-    write_json(run / "metrics.json", {"pass_at_1": 1.0, "voice_capability_retention": None})
-    write_jsonl(run / "episodes.jsonl", [sample_episode()])
+    episodes = [sample_episode()]
+    write_json(run / "metrics.json", metrics_with_metadata(episodes, {"pass_at_1": 1.0, "voice_capability_retention": None}))
+    write_jsonl(run / "episodes.jsonl", episodes)
 
     store = DashboardStore(tmp_path)
     runs = store.list_runs()
@@ -72,7 +105,33 @@ def test_dashboard_store_lists_runs_and_preserves_null_metrics(tmp_path):
     summary = store.run_summary("run_a")
     assert summary["metrics"]["pass_at_1"] == 1.0
     assert summary["metrics"]["voice_capability_retention"] is None
+    assert summary["metrics_hash_valid"] is True
     assert summary["pass_fail"] == {"passed": 1, "failed": 0, "unscored": 0}
+
+
+def test_dashboard_store_ignores_stale_metrics_json(tmp_path):
+    run = tmp_path / "stale_run"
+    run.mkdir()
+    write_json(run / "metrics.json", {"pass_at_1": 1.0, "episode_set_hash": "stale"})
+    write_jsonl(
+        run / "episodes.jsonl",
+        [
+            sample_episode(
+                scores={
+                    "final_pass": 0,
+                    "tool_exact_match": 0,
+                    "argument_exact_match": 0,
+                    "state_match": 0,
+                },
+                failure_types=["TOOL_SELECTION_ERROR"],
+            )
+        ],
+    )
+
+    summary = DashboardStore(tmp_path).run_summary("stale_run")
+    assert summary["metric_source"] == "episodes.jsonl"
+    assert summary["metrics_hash_valid"] is False
+    assert summary["metrics"]["pass_at_1"] == 0.0
 
 
 def test_dashboard_store_summarizes_run_without_metrics(tmp_path):
@@ -121,8 +180,9 @@ def test_dashboard_store_reports_malformed_episode_rows(tmp_path):
 def test_dashboard_api_endpoints(tmp_path):
     run = tmp_path / "api_run"
     run.mkdir()
-    write_json(run / "metrics.json", {"pass_at_1": 1.0})
-    write_jsonl(run / "episodes.jsonl", [sample_episode()])
+    episodes = [sample_episode()]
+    write_json(run / "metrics.json", metrics_with_metadata(episodes, {"pass_at_1": 1.0}))
+    write_jsonl(run / "episodes.jsonl", episodes)
 
     client = TestClient(create_app(str(tmp_path)))
     runs = client.get("/api/runs")
@@ -142,3 +202,39 @@ def test_dashboard_api_endpoints(tmp_path):
     assert detail.status_code == 200
     assert detail.json()["summary"]["episode_id"] == episode_id
     assert detail.json()["timeline"][0]["event"] == "tool_call"
+
+
+def test_fdrc_required_metric_contract_is_non_null_for_scored_run(tmp_path):
+    run = tmp_path / "fdrc_run"
+    run.mkdir()
+    write_jsonl(run / "episodes.jsonl", [sample_fdrc_episode()])
+
+    summary = DashboardStore(tmp_path).run_summary("fdrc_run", track=FDRC_TRACK)
+    assert summary["status"] == "completed"
+    for key in FDRC_REQUIRED_METRICS:
+        assert summary["metrics"][key] is not None, key
+    assert summary["metrics"]["cancel_success_rate"] is None
+    assert summary["metrics"]["metric_contract"]["null_reasons"]["cancel_success_rate"] == {
+        "null_reason": "no_cancel_cases",
+        "denominator": 0,
+    }
+    assert summary["metrics"]["metric_contract"]["violations"] == []
+
+
+def test_fdrc_api_and_evaluator_contract_metrics_match(tmp_path):
+    run = tmp_path / "fdrc_run"
+    run.mkdir()
+    write_jsonl(run / "episodes.jsonl", [sample_fdrc_episode()])
+
+    comparison = compare_layers("fdrc_run", tmp_path)
+    assert comparison["matched"] is True
+    rows = debug_rows("fdrc_run", tmp_path)
+    assert rows[0]["observed_events_ok"] is True
+    assert rows[0]["yield_ms"] == 400
+
+    client = TestClient(create_app(str(tmp_path)))
+    response = client.get(f"/api/runs/fdrc_run/summary?track={FDRC_TRACK}")
+    assert response.status_code == 200
+    metrics = response.json()["metrics"]
+    for key in FDRC_REQUIRED_METRICS:
+        assert metrics[key] is not None, key

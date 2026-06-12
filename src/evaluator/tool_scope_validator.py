@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from speech_interaction.tools.vivi_tool_registry import MVP_TOOLS, OFFICIAL_TOOLS
+from src.tools.vivi_tool_registry import MVP_TOOLS, OFFICIAL_TOOLS
 
 from .failure_taxonomy import FailureType
 

@@ -20,7 +20,7 @@ from . import audio_io
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DATA_ROOT = REPO_ROOT / "data" / "voice"
-DEFAULT_CONDITIONS_DIR = REPO_ROOT / "speech_interaction" / "audio_conditions"
+DEFAULT_CONDITIONS_DIR = REPO_ROOT / "src" / "audio_conditions"
 
 
 @dataclass(frozen=True)
