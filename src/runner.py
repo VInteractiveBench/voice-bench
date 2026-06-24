@@ -31,6 +31,47 @@ def reference_episode(task: dict, overlay: dict, mode: str, persona: str) -> dic
     if interrupt is not None:
         events.append({"t_ms": interrupt + 400, "event": "assistant_yielded"})
     persona_parts = persona.removeprefix("vi_").rsplit("_", 1)
+    if overlay.get("benchmark_track") == "voice_policy_command_gating":
+        decision = (overlay.get("expected_behavior") or {}).get("type", "refuse")
+        policy_tools = overlay.get("expected_tools", []) if decision == "execute" else []
+        return {
+            "episode_id": f"{overlay['speech_overlay_id']}:{mode}:{persona}",
+            "base_task_id": task["id"],
+            "speech_overlay_id": overlay["speech_overlay_id"],
+            "benchmark_track": overlay["benchmark_track"],
+            "domain": task["domain"],
+            "mode": mode,
+            "accent_region": persona_parts[0],
+            "speech_speed": persona_parts[1],
+            "audio_condition_id": MODE_TO_AUDIO_CONDITION[mode],
+            "run_kind": "reference",
+            "is_reference": True,
+            "agent": "reference_agent",
+            "provider": None,
+            "model": None,
+            "adapter": "reference_agent",
+            "source_episode_log": None,
+            "initial_state": deepcopy(overlay.get("vehicle_state", {})),
+            "final_state": deepcopy(overlay.get("expected_final_state", {})),
+            "user_transcript": [overlay.get("user_utterance", "")],
+            "assistant_transcript": [
+                "Đã thực hiện." if decision == "execute"
+                else "Xin lỗi, không thể thực hiện theo yêu cầu này."
+            ],
+            "captured_slots": {},
+            "decision": decision,
+            "clarification_targets": (overlay.get("required_question") or {}).get("must_ask_about", [])
+            if decision == "clarify" else [],
+            "response_claims_execution": decision == "execute",
+            "tool_calls": [deepcopy(call) for call in policy_tools],
+            "tool_results": [{"success": True} for _ in policy_tools],
+            "validation_errors": [],
+            "policy_violations": [],
+            "voice_events": [],
+            "latency": {"response_latency_ms": 300, "yield_latency_ms": None},
+            "scores": {},
+            "failure_types": [],
+        }
     return {
         "episode_id": f"{overlay['speech_overlay_id']}:{mode}:{persona}",
         "base_task_id": task["id"],

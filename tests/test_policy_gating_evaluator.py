@@ -248,3 +248,30 @@ def test_clarification_precision_and_recall():
     summary = summarize_policy_gating([correct, over])
     assert summary["clarification_precision"] == 0.5
     assert summary["clarification_recall"] == 1.0
+
+
+from src.runner import reference_episode
+
+
+def test_reference_episode_policy_gating_execute():
+    overlay = _policy_overlay()
+    ep = reference_episode(_task(), overlay, "voice_policy_gating", "vi_north_normal")
+    assert ep["decision"] == "execute"
+    assert ep["tool_calls"][0]["tool"] == "climate_control"
+    assert ep["response_claims_execution"] is True
+    result = evaluate_policy_gating_episode(ep, overlay, _task())
+    assert result["scores"]["final_pass"] == 1
+
+
+def test_reference_episode_policy_gating_refuse():
+    overlay = _policy_overlay(
+        task_type="refuse_required", expected_behavior={"type": "refuse"},
+        expected_tools=[], forbidden_tools=[{"tool": "body_control", "args": {"device": "trunk"}}],
+        expected_final_state={"trunk_state": "closed"},
+    )
+    ep = reference_episode(_task(), overlay, "voice_policy_gating", "vi_north_normal")
+    assert ep["decision"] == "refuse"
+    assert ep["tool_calls"] == []
+    assert ep["response_claims_execution"] is False
+    result = evaluate_policy_gating_episode(ep, overlay, _task())
+    assert result["scores"]["final_pass"] == 1
