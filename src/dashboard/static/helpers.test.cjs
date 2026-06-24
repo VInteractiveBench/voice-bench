@@ -151,4 +151,68 @@ t("leaderboardRow shows dash when not reportable", () => {
   assert.strictEqual(r.reportable, false);
 });
 
+// ---- run kind grouping ----
+t("effectiveRunKind maps provider => benchmark", () => {
+  assert.strictEqual(VB.effectiveRunKind({ data_provenance: "provider" }), "benchmark");
+});
+t("effectiveRunKind maps reference + synthetic_reference => reference", () => {
+  assert.strictEqual(VB.effectiveRunKind({ data_provenance: "reference" }), "reference");
+  assert.strictEqual(VB.effectiveRunKind({ data_provenance: "synthetic_reference" }), "reference");
+});
+t("effectiveRunKind maps internal and sample to themselves", () => {
+  assert.strictEqual(VB.effectiveRunKind({ data_provenance: "internal" }), "internal");
+  assert.strictEqual(VB.effectiveRunKind({ data_provenance: "sample" }), "sample");
+});
+t("effectiveRunKind never lets unknown masquerade as benchmark", () => {
+  assert.strictEqual(VB.effectiveRunKind({ data_provenance: "unknown" }), "internal");
+  assert.strictEqual(VB.effectiveRunKind({}), "internal");
+  assert.strictEqual(VB.effectiveRunKind(null), "internal");
+});
+
+t("defaultRunId prefers the first provider/benchmark run", () => {
+  const runs = [
+    { run_id: "impl_check", data_provenance: "internal" },
+    { run_id: "real_run", data_provenance: "provider" },
+    { run_id: "ref_run", data_provenance: "reference" },
+  ];
+  assert.strictEqual(VB.defaultRunId(runs), "real_run");
+});
+t("defaultRunId falls back to first run when no benchmark exists", () => {
+  const runs = [
+    { run_id: "ref_run", data_provenance: "reference" },
+    { run_id: "impl_check", data_provenance: "internal" },
+  ];
+  assert.strictEqual(VB.defaultRunId(runs), "ref_run");
+});
+t("defaultRunId returns null for empty/missing input", () => {
+  assert.strictEqual(VB.defaultRunId([]), null);
+  assert.strictEqual(VB.defaultRunId(null), null);
+});
+
+t("groupRunsByKind returns non-empty groups in fixed order", () => {
+  const runs = [
+    { run_id: "s1", data_provenance: "sample" },
+    { run_id: "b1", data_provenance: "provider" },
+    { run_id: "r1", data_provenance: "reference" },
+    { run_id: "b2", data_provenance: "provider" },
+  ];
+  const groups = VB.groupRunsByKind(runs);
+  assert.deepStrictEqual(groups.map((g) => g.kind), ["benchmark", "reference", "sample"]);
+  assert.strictEqual(groups[0].runs.length, 2);
+  assert.strictEqual(groups[0].label, VB.RUN_KIND_LABELS.benchmark);
+  assert.strictEqual(groups[0].runs[0].run_id, "b1");
+});
+t("groupRunsByKind preserves input order within a group", () => {
+  const runs = [
+    { run_id: "b2", data_provenance: "provider" },
+    { run_id: "b1", data_provenance: "provider" },
+  ];
+  const groups = VB.groupRunsByKind(runs);
+  assert.deepStrictEqual(groups[0].runs.map((r) => r.run_id), ["b2", "b1"]);
+});
+t("groupRunsByKind handles empty input", () => {
+  assert.deepStrictEqual(VB.groupRunsByKind([]), []);
+  assert.deepStrictEqual(VB.groupRunsByKind(null), []);
+});
+
 console.log(`\n${passed} assertions passed.`);

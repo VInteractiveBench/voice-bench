@@ -12,6 +12,47 @@
 
   const FDRC_TRACK = "full_duplex_repair_to_commit";
 
+  const RUN_KIND_ORDER = ["benchmark", "reference", "internal", "sample"];
+  const RUN_KIND_LABELS = {
+    benchmark: "Kết quả thật (model provider)",
+    reference: "Đối chiếu — kiểm bộ chấm",
+    internal: "Nội bộ — chạy thử khi dev",
+    sample: "Dữ liệu mẫu",
+  };
+
+  // Map a run's data_provenance into a display kind. "benchmark" is reserved
+  // strictly for provider-backed runs so only real scores can be the default.
+  function effectiveRunKind(run) {
+    const prov = (run && run.data_provenance) || "";
+    if (prov === "provider") return "benchmark";
+    if (prov === "reference" || prov === "synthetic_reference") return "reference";
+    if (prov === "internal") return "internal";
+    if (prov === "sample") return "sample";
+    return "internal"; // unknown never masquerades as benchmark
+  }
+
+  // Pick which run to select by default. /api/runs is already sorted by
+  // updated_at desc, so "first benchmark" = newest real score.
+  function defaultRunId(runs) {
+    const list = runs || [];
+    const bench = list.find((r) => effectiveRunKind(r) === "benchmark");
+    if (bench) return bench.run_id;
+    return list.length ? list[0].run_id : null;
+  }
+
+  // Bucket runs into ordered, non-empty display groups by kind.
+  // Returns [{ kind, label, runs:[...] }] in RUN_KIND_ORDER.
+  function groupRunsByKind(runs) {
+    const buckets = {};
+    for (const r of runs || []) {
+      const k = effectiveRunKind(r);
+      (buckets[k] = buckets[k] || []).push(r);
+    }
+    return RUN_KIND_ORDER
+      .filter((k) => buckets[k] && buckets[k].length)
+      .map((k) => ({ kind: k, label: RUN_KIND_LABELS[k], runs: buckets[k] }));
+  }
+
   // ---- formatting -------------------------------------------------
   function fmtPct(v, digits) {
     if (v === null || v === undefined || Number.isNaN(v)) return "—";
@@ -287,6 +328,11 @@
 
   return {
     FDRC_TRACK,
+    RUN_KIND_ORDER,
+    RUN_KIND_LABELS,
+    effectiveRunKind,
+    defaultRunId,
+    groupRunsByKind,
     fmtPct,
     fmtMs,
     fmtInt,
