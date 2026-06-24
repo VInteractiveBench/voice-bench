@@ -772,6 +772,19 @@ def _metric_status(key: str, value: Any, nullable: bool, contract_violations: se
     return "ok"
 
 
+def _synth_null_reason(key: str, metrics: dict[str, Any]) -> str:
+    """Reason code for a None metric that has no contract-provided null_reason.
+
+    Keeps N/A cells auditable: performance_* metrics are gated off until the run
+    is reportable (validity >= 90%), everything else is simply absent data.
+    """
+    if key.startswith("performance_"):
+        status = str(metrics.get("reportability_status") or "")
+        if status and not status.startswith("REPORTABLE"):
+            return "not_reportable_validity"
+    return "no_data"
+
+
 def _build_metric_catalog(
     metrics: dict[str, Any],
     *,
@@ -805,6 +818,8 @@ def _build_metric_catalog(
             if isinstance(reason_payload, dict)
             else reason_payload
         )
+        if value is None and not null_reason:
+            null_reason = _synth_null_reason(key, metrics)
         denominator_payload = (
             denominators.get(key)
             if key in denominators

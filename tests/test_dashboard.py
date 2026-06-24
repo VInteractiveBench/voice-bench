@@ -299,3 +299,17 @@ def test_explain_metric_reports_displayed_value_when_metrics_json_valid(tmp_path
     assert result["value"] == 0.999                      # headline = displayed (from metrics.json)
     assert result["recomputed_value"] != 0.999           # recomputed from episodes differs
     assert result["value_matches_recomputed"] is False
+
+
+def test_synth_null_reason_gates_performance_by_validity():
+    from src.dashboard.service import _synth_null_reason
+    assert _synth_null_reason(
+        "performance_fdrc_pass_at_1", {"reportability_status": "NOT_REPORTABLE"}
+    ) == "not_reportable_validity"
+    assert _synth_null_reason(
+        "performance_yield_latency_p50_ms", {"reportability_status": "VALIDITY_ONLY"}
+    ) == "not_reportable_validity"
+    assert _synth_null_reason(
+        "performance_fdrc_pass_at_1", {"reportability_status": "REPORTABLE_DOMAIN"}
+    ) == "no_data"
+    assert _synth_null_reason("some_other_metric", {}) == "no_data"
