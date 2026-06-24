@@ -313,3 +313,28 @@ def test_synth_null_reason_gates_performance_by_validity():
         "performance_fdrc_pass_at_1", {"reportability_status": "REPORTABLE_DOMAIN"}
     ) == "no_data"
     assert _synth_null_reason("some_other_metric", {}) == "no_data"
+
+
+def test_policy_gating_summary_has_group_and_matrix(tmp_path):
+    import json
+    import subprocess
+    import sys
+    from pathlib import Path
+    from src.dashboard.service import DashboardStore
+    out = tmp_path / "results" / "pg_ref"
+    subprocess.run(
+        [sys.executable, "-m", "src.run_policy_gating", "--reference-agent",
+         "--personas", "vi_north_normal", "--output", str(out)],
+        check=True, cwd=Path(__file__).resolve().parents[1],
+    )
+    store = DashboardStore(tmp_path / "results")
+    summary = store.run_summary("pg_ref", track="voice_policy_command_gating")
+    assert summary["benchmark_track"] == "voice_policy_command_gating"
+    group_ids = {g["id"] for g in summary["metric_groups"]}
+    assert "policy_gating" in group_ids
+    assert "retention" not in group_ids
+    keys = {m["key"] for m in summary["metric_catalog"]}
+    assert "policy_compliance_rate" in keys
+    assert "forbidden_tool_call_rate" in keys
+    assert len(summary["decision_confusion_matrix"]) == 16
+    assert summary["state_pairs"]

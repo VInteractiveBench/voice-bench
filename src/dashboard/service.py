@@ -13,12 +13,15 @@ from src.io import load_base_tasks, load_overlays
 from src.evaluator.fdrc_evaluator import evaluate_fdrc_episode, summarize_fdrc
 from src.evaluator.fdrc_contract import summarize_fdrc_contract
 from src.evaluator.fdrc_explain import explain_fdrc_metric
-from src.evaluator.retention_evaluator import evaluate_retention_episode, summarize_retention
+from src.evaluator.policy_gating_evaluator import (
+    evaluate_policy_gating_episode,
+    summarize_policy_gating,
+)
 from src.runner import episode_set_hash
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
-RETENTION_TRACK = "text_to_voice_retention"
+POLICY_TRACK = "voice_policy_command_gating"
 FDRC_TRACK = "full_duplex_repair_to_commit"
 PRIORITY_TIMELINE_EVENTS = {
     "assistant_speech_start",
@@ -32,24 +35,24 @@ PRIORITY_TIMELINE_EVENTS = {
 RUN_JOBS: dict[str, dict[str, Any]] = {}
 
 BENCHMARK_LABELS = {
-    RETENTION_TRACK: "Text-to-Voice Capability Retention",
+    POLICY_TRACK: "Policy-Grounded Voice Command Gating",
     FDRC_TRACK: "Full-Duplex Repair-to-Commit",
 }
 
 RUN_PRESETS = {
-    "retention_reference": {
-        "label": "Retention reference-agent",
-        "benchmark_track": RETENTION_TRACK,
-        "script": "run_voice_retention.py",
+    "policy_gating_reference": {
+        "label": "Policy gating reference-agent",
+        "benchmark_track": POLICY_TRACK,
+        "script": "run_policy_gating.py",
         "args": ["--reference-agent"],
-        "default_output_prefix": "dashboard_retention_reference",
+        "default_output_prefix": "dashboard_policy_gating_reference",
     },
-    "retention_openai": {
-        "label": "Retention OpenAI realtime",
-        "benchmark_track": RETENTION_TRACK,
-        "script": "run_voice_retention.py",
+    "policy_gating_openai": {
+        "label": "Policy gating OpenAI realtime",
+        "benchmark_track": POLICY_TRACK,
+        "script": "run_policy_gating.py",
         "args": ["--agent", "openai_realtime"],
-        "default_output_prefix": "dashboard_retention_openai",
+        "default_output_prefix": "dashboard_policy_gating_openai",
     },
     "fdrc_reference": {
         "label": "FDRC reference-agent",
@@ -80,9 +83,9 @@ SPEED_LABELS = {
 }
 
 TRACK_DESCRIPTIONS = {
-    RETENTION_TRACK: (
-        "Đo mức Vivi giữ được năng lực từ text baseline sang voice, đặc biệt "
-        "critical slots, tool calls, arguments và final state."
+    POLICY_TRACK: (
+        "Đo xem Vivi có chọn đúng hành vi execute/clarify/refuse/defer theo "
+        "policy và trạng thái xe khi nhận lệnh giọng nói trong cabin."
     ),
     FDRC_TRACK: (
         "Đo khả năng nhường lời khi user chen ngang, tiếp nhận lệnh sửa/hủy, "
@@ -115,26 +118,18 @@ METRIC_GROUPS = [
     },
     {"id": "policy", "label": "Policy", "metric_keys": ["policy_violation_rate"]},
     {
-        "id": "retention",
-        "label": "Text-to-Voice Retention",
+        "id": "policy_gating",
+        "label": "Policy-Grounded Voice Command Gating",
         "metric_keys": [
-            "text_pass_at_1",
-            "clean_voice_pass_at_1",
-            "cabin_voice_pass_at_1",
-            "clean_voice_retention",
-            "voice_capability_retention",
-            "voice_degradation_gap",
-            "critical_slot_accuracy",
-            "complete_pair_count",
-            "incomplete_pair_count",
-            "accent_gap",
-            "speed_gap",
+            "policy_compliance_rate",
+            "forbidden_tool_call_rate",
+            "clarification_precision",
+            "clarification_recall",
+            "state_conditioned_decision_accuracy",
+            "final_state_correctness",
+            "response_honesty_rate",
+            "tool_argument_accuracy",
         ],
-    },
-    {
-        "id": "retention_degradation",
-        "label": "Retention Degradation",
-        "metric_keys": ["degradation_by_component.*"],
     },
     {
         "id": "fdrc",
@@ -191,17 +186,14 @@ METRIC_REGISTRY = {
     "out_of_scope_tool_call_rate": ("Tool ngoài phạm vi", "Tỷ lệ episode gọi official tool ngoài MVP scope.", "rate", "tool_state"),
     "hallucinated_tool_rate": ("Tool không whitelist", "Tỷ lệ episode gọi tool không nằm trong whitelist.", "rate", "tool_state"),
     "policy_violation_rate": ("Vi phạm policy", "Tỷ lệ episode vi phạm policy benchmark.", "rate", "policy"),
-    "text_pass_at_1": ("Pass text baseline", "Tỷ lệ pass của các episode text baseline.", "rate", "retention"),
-    "clean_voice_pass_at_1": ("Pass voice sạch", "Tỷ lệ pass khi input là giọng nói sạch.", "rate", "retention"),
-    "cabin_voice_pass_at_1": ("Pass voice cabin", "Tỷ lệ pass khi input là giọng nói có nhiễu cabin.", "rate", "retention"),
-    "clean_voice_retention": ("Giữ năng lực voice sạch", "clean_voice_pass_at_1 / text_pass_at_1.", "rate", "retention"),
-    "voice_capability_retention": ("Giữ năng lực voice cabin", "cabin_voice_pass_at_1 / text_pass_at_1.", "rate", "retention"),
-    "voice_degradation_gap": ("Khoảng suy giảm voice", "text_pass_at_1 - cabin_voice_pass_at_1.", "rate", "retention"),
-    "critical_slot_accuracy": ("Đúng critical slot", "Tỷ lệ slot quan trọng được giữ đúng.", "rate", "retention"),
-    "complete_pair_count": ("Cặp retention đủ", "Số cặp task có đủ text, clean voice và cabin voice.", "count", "retention"),
-    "incomplete_pair_count": ("Cặp retention thiếu", "Số cặp task thiếu ít nhất một mode retention.", "count", "retention"),
-    "accent_gap": ("Chênh lệch vùng giọng", "Khoảng cách pass rate lớn nhất giữa các accent region.", "rate", "retention"),
-    "speed_gap": ("Chênh lệch tốc độ nói", "Khoảng cách pass rate lớn nhất giữa các speech speed.", "rate", "retention"),
+    "policy_compliance_rate": ("Tuân thủ policy", "Tỷ lệ episode chọn đúng execute/clarify/refuse/defer.", "rate", "policy_gating"),
+    "forbidden_tool_call_rate": ("Gọi tool bị cấm", "Tỷ lệ episode policy-sensitive có gọi forbidden tool (càng thấp càng tốt).", "rate", "policy_gating"),
+    "clarification_precision": ("Độ chính xác hỏi lại", "correct_clarifications / all_clarifications_made.", "rate", "policy_gating"),
+    "clarification_recall": ("Độ phủ hỏi lại", "required_clarifications_made / all_cases_requiring_clarification.", "rate", "policy_gating"),
+    "state_conditioned_decision_accuracy": ("Đúng theo trạng thái xe", "Tỷ lệ quyết định đúng trên các episode state-conditioned.", "rate", "policy_gating"),
+    "final_state_correctness": ("Đúng final state", "Tỷ lệ episode có final state khớp expected.", "rate", "policy_gating"),
+    "response_honesty_rate": ("Phản hồi trung thực", "Tỷ lệ phản hồi nhất quán với tool execution thực tế.", "rate", "policy_gating"),
+    "tool_argument_accuracy": ("Đúng argument tool", "Tỷ lệ argument tool đúng trên các execute case.", "rate", "policy_gating"),
     "fdrc_pass_at_1": ("Pass FDRC", "Tỷ lệ episode FDRC pass toàn bộ tiêu chí.", "rate", "fdrc"),
     "performance_fdrc_pass_at_1": ("Pass FDRC performance", "Pass rate chỉ tính trên episode FDRC hợp lệ.", "rate", "fdrc"),
     "raw_fdrc_pass_at_1": ("Pass FDRC raw", "Pass rate trên toàn bộ episode, giữ để forensic.", "rate", "fdrc"),
@@ -433,46 +425,11 @@ def _summarize_from_episodes(
         ),
     }
     tracks = set(_values(episodes, "benchmark_track"))
-    if RETENTION_TRACK in tracks:
-        retention_rows = [
-            episode for episode in episodes if episode.get("benchmark_track") == RETENTION_TRACK
+    if POLICY_TRACK in tracks:
+        policy_rows = [
+            episode for episode in episodes if episode.get("benchmark_track") == POLICY_TRACK
         ]
-        metrics.update(summarize_retention(retention_rows))
-        by_mode: dict[str, list[dict[str, Any]]] = defaultdict(list)
-        for episode in retention_rows:
-            by_mode[str(episode.get("mode"))].append(episode)
-        text = _mode_pass_rate(by_mode.get("text_baseline", []))
-        clean = _mode_pass_rate(by_mode.get("clean_voice", []))
-        cabin = _mode_pass_rate(by_mode.get("realistic_cabin_voice", []))
-        slots_correct = sum(
-            episode.get("critical_slot_result", {}).get("correct", 0)
-            for episode in episodes
-            if isinstance(episode.get("critical_slot_result"), dict)
-        )
-        slots_total = sum(
-            episode.get("critical_slot_result", {}).get("total", 0)
-            for episode in episodes
-            if isinstance(episode.get("critical_slot_result"), dict)
-        )
-        metrics.update(
-            {
-                "text_pass_at_1": text,
-                "clean_voice_pass_at_1": clean,
-                "cabin_voice_pass_at_1": cabin,
-                "clean_voice_retention": clean / text
-                if text and clean is not None
-                else None,
-                "voice_capability_retention": cabin / text
-                if text and cabin is not None
-                else None,
-                "voice_degradation_gap": text - cabin
-                if text is not None and cabin is not None
-                else None,
-                "critical_slot_accuracy": slots_correct / slots_total
-                if slots_total
-                else None,
-            }
-        )
+        metrics.update(summarize_policy_gating(policy_rows))
     if FDRC_TRACK in tracks:
         fdrc_rows = [
             episode for episode in episodes if episode.get("benchmark_track") == FDRC_TRACK
@@ -579,8 +536,8 @@ def _evaluation_view(episodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 if not (row.get("is_reference") or row.get("run_kind") in {"reference", "sample", "internal"}):
                     row["voice_events"] = _fdrc_voice_events_for_evaluation(row, overlay)
                 row = evaluate_fdrc_episode(row, overlay, task)
-            elif row.get("benchmark_track") == RETENTION_TRACK:
-                row = evaluate_retention_episode(row, overlay, task)
+            elif row.get("benchmark_track") == POLICY_TRACK:
+                row = evaluate_policy_gating_episode(row, overlay, task)
         except Exception as exc:
             row.setdefault("failure_types", []).append("DASHBOARD_REEVALUATION_ERROR")
             row["primary_failure_type"] = row.get("primary_failure_type") or "DASHBOARD_REEVALUATION_ERROR"
@@ -588,11 +545,6 @@ def _evaluation_view(episodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
         row["failure_types"] = [str(failure) for failure in (row.get("failure_types") or [])]
         evaluated.append(row)
     return evaluated
-
-
-def _mode_pass_rate(rows: list[dict[str, Any]]) -> float | None:
-    scored = [row for row in rows if _score_pass(row) is not None]
-    return _rate(sum(1 for row in scored if _score_pass(row)), len(scored))
 
 
 def _group_pass_rate(episodes: list[dict[str, Any]], field: str) -> list[dict[str, Any]]:
@@ -679,16 +631,6 @@ def _top_latency_episodes(
 def _metric_meta(key: str) -> tuple[str, str, str, str]:
     if key in METRIC_REGISTRY:
         return METRIC_REGISTRY[key]
-    if key.startswith("degradation_by_component."):
-        parts = key.split(".")
-        mode = parts[1] if len(parts) > 1 else "unknown"
-        component = parts[2] if len(parts) > 2 else "unknown"
-        return (
-            f"{mode} {component}",
-            "Mức suy giảm giữa text baseline và voice mode theo từng thành phần.",
-            "rate",
-            "retention_degradation",
-        )
     if key.startswith("latency_summary."):
         parts = key.split(".")
         metric = parts[1] if len(parts) > 1 else "latency"
@@ -707,16 +649,9 @@ def _flatten_metrics(metrics: dict[str, Any], latency_summary: list[dict[str, An
     flat: dict[str, Any] = {
         key: value
         for key, value in metrics.items()
-        if key not in {"degradation_by_component", "metric_contract", "run_metadata"}
+        if key not in {"decision_confusion_matrix", "state_pairs", "metric_contract", "run_metadata"}
         and not isinstance(value, (dict, list))
     }
-    degradation = metrics.get("degradation_by_component")
-    if isinstance(degradation, dict):
-        for mode, values in degradation.items():
-            if not isinstance(values, dict):
-                continue
-            for component, value in values.items():
-                flat[f"degradation_by_component.{mode}.{component}"] = value
     contract = metrics.get("metric_contract")
     if isinstance(contract, dict):
         flat["metric_contract.benchmark_status"] = contract.get("benchmark_status")
@@ -738,11 +673,11 @@ def _flatten_metrics(metrics: dict[str, Any], latency_summary: list[dict[str, An
 
 
 def _metric_group_applies(group_id: str, selected_track: str | None) -> bool:
-    retention_only = {"retention", "retention_degradation"}
+    policy_only = {"policy_gating"}
     fdrc_only = {"fdrc"}
-    if selected_track == RETENTION_TRACK and group_id in fdrc_only:
+    if selected_track == POLICY_TRACK and group_id in fdrc_only:
         return False
-    if selected_track == FDRC_TRACK and group_id in retention_only:
+    if selected_track == FDRC_TRACK and group_id in policy_only:
         return False
     return True
 
@@ -1032,7 +967,7 @@ class DashboardStore:
                     "provenance_label": _provenance_label(provenance),
                     "provenance_warning": _provenance_warning(provenance),
                     "primary": provenance == "provider"
-                    and track in {RETENTION_TRACK, FDRC_TRACK},
+                    and track in {POLICY_TRACK, FDRC_TRACK},
                     **metadata,
                 }
             )
@@ -1163,6 +1098,8 @@ class DashboardStore:
             "metric_contract": metric_contract,
             "null_reasons": metric_contract.get("null_reasons", {}),
             "denominators": metric_contract.get("denominators", {}),
+            "decision_confusion_matrix": display_metrics.get("decision_confusion_matrix", []),
+            "state_pairs": display_metrics.get("state_pairs", []),
             "metric_source": metric_source,
             "metrics_hash_valid": metrics_valid,
             "episode_count": len(scoped_episodes),
@@ -1385,7 +1322,7 @@ class DashboardStore:
         overlays = load_overlays()
         domains = sorted({task["domain"] for task in tasks.values()})
         overlay_counts: dict[str, dict[str, int]] = {
-            RETENTION_TRACK: {},
+            POLICY_TRACK: {},
             FDRC_TRACK: {},
         }
         for overlay in overlays:
@@ -1422,9 +1359,9 @@ class DashboardStore:
             )
         return {
             "tracks": {
-                RETENTION_TRACK: {
-                    "label": BENCHMARK_LABELS[RETENTION_TRACK],
-                    "description": TRACK_DESCRIPTIONS[RETENTION_TRACK],
+                POLICY_TRACK: {
+                    "label": BENCHMARK_LABELS[POLICY_TRACK],
+                    "description": TRACK_DESCRIPTIONS[POLICY_TRACK],
                 },
                 FDRC_TRACK: {
                     "label": BENCHMARK_LABELS[FDRC_TRACK],
@@ -1442,7 +1379,7 @@ class DashboardStore:
             ],
             "audio_conditions": audio_conditions,
             "overlay_counts": overlay_counts,
-            "retention_audio_modes": ["clean", "cabin_noise"],
+            "policy_gating_audio_modes": ["clean"],
             "fdrc_audio_modes": ["interaction_stress"],
         }
 
