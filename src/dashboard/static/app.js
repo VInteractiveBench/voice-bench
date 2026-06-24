@@ -70,7 +70,7 @@
   function loadEpisodes(runId, filters) {
     const q = new URLSearchParams({ track: FDRC });
     if (filters.validity) q.set("validity", filters.validity);
-    if (filters.passed !== "") q.set("passed", filters.passed);
+    if (filters.passed === "true" || filters.passed === "false") q.set("passed", filters.passed);
     if (filters.domain) q.set("domain", filters.domain);
     if (filters.failure) q.set("failure", filters.failure);
     return getJSON(`/api/runs/${encodeURIComponent(runId)}/episodes?${q}`);
