@@ -12,12 +12,14 @@ ValidationIssue = dict[str, Any]
 
 RETENTION_TRACK = "text_to_voice_retention"
 FDRC_TRACK = "full_duplex_repair_to_commit"
+POLICY_TRACK = "voice_policy_command_gating"
 
 MODE_TO_AUDIO_CONDITION: dict[str, str] = {
     "text_baseline": "none",
     "clean_voice": "clean",
     "realistic_cabin_voice": "cabin_noise",
     "full_duplex_repair_to_commit": "interaction_stress",
+    "voice_policy_gating": "clean",
 }
 
 COMMON_TASK_FIELDS = {
@@ -39,8 +41,6 @@ COMMON_OVERLAY_FIELDS = {
     "accent_region": str,
     "speech_speed": str,
     "audio_condition_id": str,
-    "expected_critical_slots": dict,
-    "voice_assertions": dict,
 }
 
 FDRC_OVERLAY_FIELDS = {
@@ -52,7 +52,23 @@ FDRC_OVERLAY_FIELDS = {
     "forbidden_tool_calls": list,
     "expected_tool_calls": list,
     "expected_final_state": dict,
+    "expected_critical_slots": dict,
+    "voice_assertions": dict,
 }
+
+POLICY_OVERLAY_FIELDS = {
+    "task_type": str,
+    "user_utterance": str,
+    "vehicle_state": dict,
+    "expected_behavior": dict,
+    "forbidden_tools": list,
+    "expected_final_state": dict,
+}
+
+POLICY_TASK_TYPES = {
+    "execute_allowed", "clarify_required", "refuse_required", "state_conditioned_pair",
+}
+POLICY_DECISIONS = {"execute", "clarify", "refuse", "defer"}
 
 REQUIRED_FDRC_EVENTS = {
     "user_speech_start",
@@ -116,6 +132,27 @@ def validate_tool_call_contract(call: Any, path: str) -> list[ValidationIssue]:
         issues.append(_issue(f"{path}.args.{error['field']}", error["reason"]))
     if "t_ms" in call and not isinstance(call["t_ms"], int):
         issues.append(_issue(f"{path}.t_ms", "invalid_type", value=type(call["t_ms"]).__name__))
+    return issues
+
+
+def validate_tool_matcher(call: Any, path: str) -> list[ValidationIssue]:
+    """Validate a forbidden-tool matcher: tool in scope + args is a dict.
+
+    Matchers carry partial args (e.g. {"device": "trunk"}) so full schema
+    validation does not apply.
+    """
+    if not isinstance(call, dict):
+        return [_issue(path, "invalid_type", value=type(call).__name__)]
+    issues: list[ValidationIssue] = []
+    if not isinstance(call.get("tool"), str):
+        issues.append(_issue(f"{path}.tool", "required_string"))
+        return issues
+    if not isinstance(call.get("args"), dict):
+        issues.append(_issue(f"{path}.args", "required_object"))
+        return issues
+    scope_error = validate_tool_scope(call["tool"])
+    if scope_error:
+        issues.append(_issue(f"{path}.tool", str(scope_error), value=call["tool"]))
     return issues
 
 
@@ -189,6 +226,27 @@ def validate_overlay(overlay: Any, tasks: dict[str, dict], path: str = "overlay"
             overlay.get("expected_tool_calls", []), overlay.get("forbidden_tool_calls", [])
         ):
             issues.append(_issue(path, "expected_call_overlaps_forbidden_call"))
+    elif track == POLICY_TRACK:
+        issues.extend(_validate_fields(overlay, POLICY_OVERLAY_FIELDS, path))
+        task_type = overlay.get("task_type")
+        if task_type not in POLICY_TASK_TYPES:
+            issues.append(_issue(f"{path}.task_type", "invalid_task_type", value=task_type))
+        behavior = overlay.get("expected_behavior", {})
+        decision = behavior.get("type") if isinstance(behavior, dict) else None
+        if decision not in POLICY_DECISIONS:
+            issues.append(_issue(f"{path}.expected_behavior.type", "invalid_decision", value=decision))
+        for index, call in enumerate(overlay.get("expected_tools", []) or []):
+            issues.extend(validate_tool_call_contract(call, f"{path}.expected_tools[{index}]"))
+        for index, call in enumerate(overlay.get("forbidden_tools", []) or []):
+            issues.extend(validate_tool_matcher(call, f"{path}.forbidden_tools[{index}]"))
+        if decision == "execute" and not overlay.get("expected_tools"):
+            issues.append(_issue(f"{path}.expected_tools", "execute_requires_expected_tools"))
+        if decision in {"clarify", "refuse", "defer"} and overlay.get("expected_tools"):
+            issues.append(_issue(f"{path}.expected_tools", "non_execute_must_not_expect_tools"))
+        if decision == "clarify":
+            must_ask = (overlay.get("required_question") or {}).get("must_ask_about") or []
+            if not must_ask:
+                issues.append(_issue(f"{path}.required_question.must_ask_about", "clarify_requires_must_ask_about"))
     else:
         issues.append(_issue(f"{path}.benchmark_track", "unknown_track", value=track))
     return issues
