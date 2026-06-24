@@ -17,10 +17,10 @@ trajectory the pass criterion.
 
 | Dimension | MVP constraint |
 |---|---|
-| Tracks | Text-to-Voice Retention; Full-Duplex Repair-to-Commit |
+| Tracks | Policy-Grounded Voice Command Gating; Full-Duplex Repair-to-Commit |
 | Domains | automotive, navigation, media_phone |
-| Logical retention tasks | 30, split 10/10/10 |
-| Speech overlays | 60 total: 30 retention and 30 FDRC |
+| Policy-gating seed cases | ~24 across 4 task types (execute/clarify/refuse/state-pair) |
+| Speech overlays | 30 FDRC + ~24 policy-gating |
 | Official whitelist | 25 Vivi tools |
 | In-scope tools | 19 tools; excludes six information/search tools |
 | Personas | north/central/south × slow/normal/fast |
@@ -33,9 +33,9 @@ scope failure from product hallucination.
 
 ## Pass Criteria
 
-Retention requires correct final state, exact expected tool trajectory, valid official
-arguments, preserved critical slots, no prohibited side effect, and user-facing
-communication. FDRC additionally requires correction uptake, suppression of all forbidden
+Policy-gating requires the correct execute/clarify/refuse/defer decision, no forbidden
+tool call, correct final state, valid official arguments (on execute), and a response
+consistent with the actual tool execution. FDRC additionally requires correction uptake, suppression of all forbidden
 old-intent calls, cancellation compliance, and yield latency no greater than 700 ms.
 
 ## Strategic Constraints

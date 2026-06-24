@@ -24,22 +24,25 @@ def write_jsonl(path, rows):
 
 def sample_episode(**overrides):
     episode = {
-        "episode_id": "ep_001:text_baseline:vi_north_normal:test:model",
+        "episode_id": "ep_001:voice_policy_gating:vi_north_normal:test:model",
         "agent": "test_agent",
         "model": "test_model",
-        "benchmark_track": "text_to_voice_retention",
+        "benchmark_track": "voice_policy_command_gating",
         "domain": "automotive",
         "base_task_id": "base_001",
         "speech_overlay_id": "overlay_001",
-        "mode": "text_baseline",
+        "mode": "voice_policy_gating",
         "accent_region": "north",
         "speech_speed": "normal",
-        "audio_condition_id": "none",
-        "initial_state": {},
-        "final_state": {"committed_intent": "base_001"},
+        "audio_condition_id": "clean",
+        "initial_state": {"speed_kmh": 0, "gear": "park", "ignition": "on"},
+        "final_state": {"climate": {"driver": {"temperature_celsius": 22}}},
         "user_transcript": ["Đặt điều hòa 22 độ."],
         "assistant_transcript": ["Đã đặt điều hòa."],
         "captured_slots": {"temperature": "22"},
+        "decision": "execute",
+        "clarification_targets": [],
+        "response_claims_execution": True,
         "normalized_events": [
             {"type": "tool_call", "t_ms": 1200, "tool": "climate_control", "args": {"value": "22"}}
         ],
@@ -57,7 +60,6 @@ def sample_episode(**overrides):
         },
         "failure_types": [],
         "primary_failure_type": None,
-        "critical_slot_result": {"passed": True, "correct": 1, "total": 1},
     }
     episode.update(overrides)
     return episode
@@ -95,7 +97,7 @@ def test_dashboard_store_lists_runs_and_preserves_null_metrics(tmp_path):
     run = tmp_path / "run_a"
     run.mkdir()
     episodes = [sample_episode()]
-    write_json(run / "metrics.json", metrics_with_metadata(episodes, {"pass_at_1": 1.0, "voice_capability_retention": None}))
+    write_json(run / "metrics.json", metrics_with_metadata(episodes, {"pass_at_1": 1.0, "clarification_precision": None}))
     write_jsonl(run / "episodes.jsonl", episodes)
 
     store = DashboardStore(tmp_path)
@@ -105,7 +107,7 @@ def test_dashboard_store_lists_runs_and_preserves_null_metrics(tmp_path):
 
     summary = store.run_summary("run_a")
     assert summary["metrics"]["pass_at_1"] == 1.0
-    assert summary["metrics"]["voice_capability_retention"] is None
+    assert summary["metrics"]["clarification_precision"] is None
     assert summary["metrics_hash_valid"] is True
     assert summary["pass_fail"] == {"passed": 1, "failed": 0, "unscored": 0}
 
@@ -141,10 +143,10 @@ def test_dashboard_store_summarizes_run_without_metrics(tmp_path):
     write_jsonl(
         run / "episodes.jsonl",
         [
-            sample_episode(mode="clean_voice"),
+            sample_episode(mode="voice_policy_gating"),
             sample_episode(
                 episode_id="ep_002",
-                mode="clean_voice",
+                mode="voice_policy_gating",
                 scores={
                     "final_pass": 0,
                     "tool_exact_match": 0,
@@ -158,7 +160,7 @@ def test_dashboard_store_summarizes_run_without_metrics(tmp_path):
     )
 
     summary = DashboardStore(tmp_path).run_summary("run_without_metrics")
-    assert summary["status"] == "partial"
+    assert summary["status"] == "failed_evaluated"
     assert summary["metric_source"] == "episodes.jsonl"
     assert summary["metrics"]["pass_at_1"] == 0.5
     assert summary["failure_counts"] == [{"key": "TOOL_SELECTION_ERROR", "count": 1}]
@@ -174,7 +176,7 @@ def test_dashboard_store_reports_malformed_episode_rows(tmp_path):
 
     summary = DashboardStore(tmp_path).run_summary("bad_run")
     assert summary["episode_count"] == 1
-    assert summary["status"] == "partial"
+    assert summary["status"] == "failed_evaluated"
     assert summary["parse_errors"][0]["line"] == 2
 
 
@@ -313,3 +315,28 @@ def test_synth_null_reason_gates_performance_by_validity():
         "performance_fdrc_pass_at_1", {"reportability_status": "REPORTABLE_DOMAIN"}
     ) == "no_data"
     assert _synth_null_reason("some_other_metric", {}) == "no_data"
+
+
+def test_policy_gating_summary_has_group_and_matrix(tmp_path):
+    import json
+    import subprocess
+    import sys
+    from pathlib import Path
+    from src.dashboard.service import DashboardStore
+    out = tmp_path / "results" / "pg_ref"
+    subprocess.run(
+        [sys.executable, "-m", "src.run_policy_gating", "--reference-agent",
+         "--personas", "vi_north_normal", "--output", str(out)],
+        check=True, cwd=Path(__file__).resolve().parents[1],
+    )
+    store = DashboardStore(tmp_path / "results")
+    summary = store.run_summary("pg_ref", track="voice_policy_command_gating")
+    assert summary["benchmark_track"] == "voice_policy_command_gating"
+    group_ids = {g["id"] for g in summary["metric_groups"]}
+    assert "policy_gating" in group_ids
+    assert "retention" not in group_ids
+    keys = {m["key"] for m in summary["metric_catalog"]}
+    assert "policy_compliance_rate" in keys
+    assert "forbidden_tool_call_rate" in keys
+    assert len(summary["decision_confusion_matrix"]) == 16
+    assert summary["state_pairs"]

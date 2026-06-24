@@ -51,7 +51,7 @@ def test_leaderboard_skips_non_fdrc(tmp_path):
     _write_run(
         tmp_path, "run_text",
         {"run_metadata": {}},
-        [{"benchmark_track": "text_baseline", "scores": {}}],
+        [{"benchmark_track": "voice_policy_command_gating", "scores": {}}],
     )
     store = DashboardStore(tmp_path)
     assert store.leaderboard() == []

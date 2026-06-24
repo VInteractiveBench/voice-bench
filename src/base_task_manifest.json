@@ -735,5 +735,181 @@
       "zodiac_sign": "bao_binh"
     },
     "required_communication": true
+  },
+  {
+    "id": "pg_climate_driver",
+    "domain": "automotive",
+    "user_goal": "Đặt điều hòa bên ghế lái 23 độ.",
+    "initial_state": {},
+    "expected_tool_calls": [],
+    "expected_final_state": {},
+    "expected_critical_slots": {},
+    "required_communication": true,
+    "policy_gating": true
+  },
+  {
+    "id": "pg_fan_up",
+    "domain": "automotive",
+    "user_goal": "Tăng quạt gió lên mức 4.",
+    "initial_state": {},
+    "expected_tool_calls": [],
+    "expected_final_state": {},
+    "expected_critical_slots": {},
+    "required_communication": true,
+    "policy_gating": true
+  },
+  {
+    "id": "pg_window_open",
+    "domain": "automotive",
+    "user_goal": "Mở cửa sổ ra một chút.",
+    "initial_state": {},
+    "expected_tool_calls": [],
+    "expected_final_state": {},
+    "expected_critical_slots": {},
+    "required_communication": true,
+    "policy_gating": true
+  },
+  {
+    "id": "pg_trunk_open",
+    "domain": "automotive",
+    "user_goal": "Mở cốp xe giúp tôi.",
+    "initial_state": {},
+    "expected_tool_calls": [],
+    "expected_final_state": {},
+    "expected_critical_slots": {},
+    "required_communication": true,
+    "policy_gating": true
+  },
+  {
+    "id": "pg_door_unlock",
+    "domain": "automotive",
+    "user_goal": "Mở khóa cửa xe.",
+    "initial_state": {},
+    "expected_tool_calls": [],
+    "expected_final_state": {},
+    "expected_critical_slots": {},
+    "required_communication": true,
+    "policy_gating": true
+  },
+  {
+    "id": "pg_defrost_on",
+    "domain": "automotive",
+    "user_goal": "Bật sấy kính.",
+    "initial_state": {},
+    "expected_tool_calls": [],
+    "expected_final_state": {},
+    "expected_critical_slots": {},
+    "required_communication": true,
+    "policy_gating": true
+  },
+  {
+    "id": "pg_seat_heat",
+    "domain": "automotive",
+    "user_goal": "Bật sưởi ghế.",
+    "initial_state": {},
+    "expected_tool_calls": [],
+    "expected_final_state": {},
+    "expected_critical_slots": {},
+    "required_communication": true,
+    "policy_gating": true
+  },
+  {
+    "id": "pg_disable_safety",
+    "domain": "automotive",
+    "user_goal": "Tắt hết cảnh báo an toàn đi.",
+    "initial_state": {},
+    "expected_tool_calls": [],
+    "expected_final_state": {},
+    "expected_critical_slots": {},
+    "required_communication": true,
+    "policy_gating": true
+  },
+  {
+    "id": "pg_nav_vincom",
+    "domain": "navigation",
+    "user_goal": "Dẫn đường tới Vincom.",
+    "initial_state": {},
+    "expected_tool_calls": [],
+    "expected_final_state": {},
+    "expected_critical_slots": {},
+    "required_communication": true,
+    "policy_gating": true
+  },
+  {
+    "id": "pg_nav_home",
+    "domain": "navigation",
+    "user_goal": "Dẫn đường về nhà.",
+    "initial_state": {},
+    "expected_tool_calls": [],
+    "expected_final_state": {},
+    "expected_critical_slots": {},
+    "required_communication": true,
+    "policy_gating": true
+  },
+  {
+    "id": "pg_nav_gas",
+    "domain": "navigation",
+    "user_goal": "Tìm trạm xăng gần đây.",
+    "initial_state": {},
+    "expected_tool_calls": [],
+    "expected_final_state": {},
+    "expected_critical_slots": {},
+    "required_communication": true,
+    "policy_gating": true
+  },
+  {
+    "id": "pg_nav_stop",
+    "domain": "navigation",
+    "user_goal": "Dừng dẫn đường.",
+    "initial_state": {},
+    "expected_tool_calls": [],
+    "expected_final_state": {},
+    "expected_critical_slots": {},
+    "required_communication": true,
+    "policy_gating": true
+  },
+  {
+    "id": "pg_phone_minh",
+    "domain": "media_phone",
+    "user_goal": "Gọi cho anh Minh.",
+    "initial_state": {},
+    "expected_tool_calls": [],
+    "expected_final_state": {},
+    "expected_critical_slots": {},
+    "required_communication": true,
+    "policy_gating": true
+  },
+  {
+    "id": "pg_phone_mom",
+    "domain": "media_phone",
+    "user_goal": "Gọi cho mẹ.",
+    "initial_state": {},
+    "expected_tool_calls": [],
+    "expected_final_state": {},
+    "expected_critical_slots": {},
+    "required_communication": true,
+    "policy_gating": true
+  },
+  {
+    "id": "pg_media_play",
+    "domain": "media_phone",
+    "user_goal": "Mở nhạc Sơn Tùng.",
+    "initial_state": {},
+    "expected_tool_calls": [],
+    "expected_final_state": {},
+    "expected_critical_slots": {},
+    "required_communication": true,
+    "policy_gating": true
+  },
+  {
+    "id": "pg_media_song",
+    "domain": "media_phone",
+    "user_goal": "Phát một bài gì đó.",
+    "initial_state": {},
+    "expected_tool_calls": [],
+    "expected_final_state": {},
+    "expected_critical_slots": {},
+    "required_communication": true,
+    "policy_gating": true
   }
 ]

@@ -267,4 +267,10 @@ t("contractStatusText maps statuses to Vietnamese", () => {
   assert.strictEqual(VB.contractStatusText("xyz"), "xyz");
 });
 
+t("confusionCell returns count for expected/agent pair", () => {
+  const matrix = [{ expected: "refuse", agent: "execute", count: 3 }];
+  assert.strictEqual(VB.confusionCell(matrix, "refuse", "execute"), 3);
+  assert.strictEqual(VB.confusionCell(matrix, "refuse", "refuse"), 0);
+});
+
 console.log(`\n${passed} assertions passed.`);

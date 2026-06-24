@@ -246,7 +246,8 @@
       <div class="stat"><span class="k">Unscored</span><span class="v muted">${pf.unscored}</span></div>
     </div>`;
 
-    document.getElementById("ov-body").innerHTML = banner + statline + renderMetricGroups(summary);
+    document.getElementById("ov-body").innerHTML =
+      banner + statline + renderMetricGroups(summary) + renderPolicyExtras(summary);
     const ovBody = document.getElementById("ov-body");
     function onMetricActivate(target) {
       const card = target.closest(".metric-clickable");
@@ -300,6 +301,49 @@
 
   function catalogGrid(catalog) {
     return `<div class="metric-grid">${catalog.map(metricCard).join("")}</div>`;
+  }
+
+  // Policy-gating-only views: the decision confusion matrix and the
+  // state-conditioned pair comparison. Render nothing for other tracks.
+  function renderPolicyExtras(summary) {
+    const matrix = summary.decision_confusion_matrix || [];
+    const pairs = summary.state_pairs || [];
+    if (!matrix.length && !pairs.length) return "";
+    const decisions = ["execute", "clarify", "refuse", "defer"];
+    const head = decisions.map((d) => `<th>${esc(d)}</th>`).join("");
+    const rows = decisions.map((exp) => {
+      const cells = decisions.map((act) => {
+        const n = H.confusionCell(matrix, exp, act);
+        const diag = exp === act && n > 0 ? ' class="s-pass"' : (n > 0 ? ' class="s-fail"' : "");
+        return `<td${diag}>${n}</td>`;
+      }).join("");
+      return `<tr><th>${esc(exp)}</th>${cells}</tr>`;
+    }).join("");
+    const matrixHtml = matrix.length
+      ? `<div class="group-label">Decision confusion matrix (kỳ vọng × agent)</div>
+         <div class="table-wrap"><table class="episodes">
+         <thead><tr><th>Expected ↓ / Agent →</th>${head}</tr></thead>
+         <tbody>${rows}</tbody></table></div>`
+      : "";
+    const pairRows = pairs.map((p) => {
+      const m = p.members || [];
+      const cell = (x) => x
+        ? `${esc(x.expected)} → <span class="${x.correct ? "s-pass" : "s-fail"}">${esc(x.agent)}</span>`
+        : "—";
+      return `<tr>
+        <td>${esc(p.user_utterance || p.state_pair_id)}</td>
+        <td>${cell(m[0])}</td>
+        <td>${cell(m[1])}</td>
+        <td>${p.pair_pass ? "✓" : "✗"}</td>
+      </tr>`;
+    }).join("");
+    const pairHtml = pairs.length
+      ? `<div class="group-label">State-conditioned pairs</div>
+         <div class="table-wrap"><table class="episodes">
+         <thead><tr><th>Câu lệnh</th><th>State A</th><th>State B</th><th>Pair pass</th></tr></thead>
+         <tbody>${pairRows}</tbody></table></div>`
+      : "";
+    return matrixHtml + pairHtml;
   }
 
   // Color a metric card: contract violations / missing → status-based; otherwise
