@@ -185,6 +185,15 @@
       if (showAllEl) {
         showAllEl.addEventListener("change", (e) => {
           showDiagnosticRuns = e.target.checked;
+          // Hiding diagnostics while a diagnostic run is active would leave the
+          // dropdown pointing at a benchmark run while the page still shows the
+          // diagnostic run's data. Navigate to the default benchmark run so the
+          // dropdown and content stay in sync.
+          const active = runs.find((r) => r.run_id === runId);
+          if (!showDiagnosticRuns && active && H.effectiveRunKind(active) !== "benchmark") {
+            nav({ tab: "fdrc", view: "overview", runId: H.defaultRunId(runs) });
+            return;
+          }
           const field = document.querySelector(".controls .field");
           field.outerHTML = runSelector(runs, runId);
           wireRunControls();
