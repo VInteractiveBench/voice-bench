@@ -75,6 +75,18 @@ Click một metric trong catalog hoặc KPI card sẽ áp dụng filter episode 
 
 Metric không có mapping trực tiếp sẽ hiển thị thông báo và không thay đổi bảng episode.
 
+### Giải thích cách tính metric (audit & trace)
+
+Bấm vào bất kỳ thẻ metric/KPI nào ở tab Full-Duplex sẽ mở hộp thoại giải thích, gọi `GET /api/runs/{run_id}/metrics/{key}/explain`. Hộp thoại hiển thị:
+
+- **Công thức** (tiếng Việt) của metric.
+- **Giá trị hiển thị = tử số / mẫu số**: tử số/mẫu số được tính lại trực tiếp từ `episodes.jsonl` bằng đúng predicate của bộ chấm (`fdrc_contract`/`fdrc_validity`), kèm nhãn mô tả tử số và mẫu số.
+- **Cảnh báo phân kỳ**: nếu giá trị hiển thị (lấy từ `metrics.json` khi hash khớp) khác với giá trị tính lại từ episode, hộp thoại cảnh báo đỏ để kiểm tra `metrics.json`.
+- **Nguồn dữ liệu** (`metrics.json` hay `episodes.jsonl`), trạng thái hash, scope (`all` hoặc chỉ `valid`), và giá trị tính lại.
+- **Danh sách episode tử số** (các episode thỏa điều kiện đếm), mỗi episode link tới chi tiết episode; kèm nút mở Episode Explorer đã lọc sẵn theo metric đó.
+
+Metric tổng hợp không có phân tích theo từng episode (vd `yield_latency_p50_ms`) sẽ hiển thị `supported = false` kèm mô tả.
+
 ## Data Integrity
 
 | Trường | Ý nghĩa |
