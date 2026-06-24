@@ -224,4 +224,29 @@ t("formatRatio coerces nullish to 0", () => {
   assert.strictEqual(VB.formatRatio(null, undefined), "0 / 0");
 });
 
+// ---- metricTone (direction-aware coloring) ----
+t("metricTone: good-high metric green when high, red when low", () => {
+  assert.strictEqual(VB.metricTone("fdrc_pass_at_1", 0.95, "rate"), "s-pass");
+  assert.strictEqual(VB.metricTone("fdrc_pass_at_1", 0.8, "rate"), "s-warn");
+  assert.strictEqual(VB.metricTone("fdrc_pass_at_1", 0.0, "rate"), "s-fail");
+  assert.strictEqual(VB.metricTone("state_match", 0.0, "rate"), "s-fail");
+  assert.strictEqual(VB.metricTone("fdrc_validity_rate", 0.625, "rate"), "s-fail");
+});
+t("metricTone: bad-high metric green when low, red when high", () => {
+  assert.strictEqual(VB.metricTone("policy_violation_rate", 0.0, "rate"), "s-pass");
+  assert.strictEqual(VB.metricTone("policy_violation_rate", 0.15, "rate"), "s-warn");
+  assert.strictEqual(VB.metricTone("policy_violation_rate", 0.375, "rate"), "s-fail");
+  assert.strictEqual(VB.metricTone("tool_validation_error_rate", 0.375, "rate"), "s-fail");
+  assert.strictEqual(VB.metricTone("forbidden_tool_call_rate", 0.125, "rate"), "s-warn");
+});
+t("metricTone: non-rate units and unknown/null are neutral", () => {
+  assert.strictEqual(VB.metricTone("yield_latency_p50_ms", 2548, "ms"), "");
+  assert.strictEqual(VB.metricTone("valid_episode_count", 1, "count"), "");
+  assert.strictEqual(VB.metricTone("some_unknown_rate", 0.0, "rate"), "");
+  assert.strictEqual(VB.metricTone("fdrc_pass_at_1", null, "rate"), "");
+});
+t("metricTone: dotted keys resolve by base", () => {
+  assert.strictEqual(VB.metricTone("performance_yield_latency_pass_rate", 1.0, "rate"), "s-pass");
+});
+
 console.log(`\n${passed} assertions passed.`);

@@ -302,13 +302,22 @@
     return `<div class="metric-grid">${catalog.map(metricCard).join("")}</div>`;
   }
 
+  // Color a metric card: contract violations / missing → status-based; otherwise
+  // direction-aware (good-high vs bad-high) so a high violation rate shows red,
+  // not green. Counts/latency/unknown rates stay neutral.
+  function metricColorClass(m) {
+    if (m.status === "invalid" || m.status === "violation" || m.status === "fail") return "s-fail";
+    if (m.value === null || m.value === undefined) return metricStatusClass(m.status);
+    return H.metricTone(m.key, m.value, m.unit);
+  }
+
   function metricCard(m) {
     const isNull = m.value === null || m.value === undefined;
     const valHtml = isNull
       ? `<div class="metric-value null">${esc(m.null_reason || "N/A")}</div>`
       : `<div class="metric-value">${esc(H.fmtMetric(m))}</div>`;
     const denom = m.denominator ? `n=${esc(m.denominator)}` : "";
-    return `<div class="metric ${metricStatusClass(m.status)} metric-clickable" data-key="${esc(m.key)}" role="button" tabindex="0">
+    return `<div class="metric ${metricColorClass(m)} metric-clickable" data-key="${esc(m.key)}" role="button" tabindex="0">
       <div class="metric-label">${esc(m.label || m.key)}</div>
       ${valHtml}
       <div class="metric-foot"><span>${esc(m.group || "")}</span><span>${denom}</span></div>
