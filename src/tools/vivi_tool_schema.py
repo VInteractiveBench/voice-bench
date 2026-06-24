@@ -5,14 +5,14 @@ from typing import Any
 from .vivi_tool_registry import get_domain_tools, get_tool_spec
 
 DESCRIPTIONS = {
-    "climate_control": "Control AC, temperature, fan, defrost, air direction, recirculation, and steering wheel heat.",
-    "seat_control": "Control seat cooling, heating, and massage.",
-    "body_control": "Control windows, sunroof, mirrors, locks, trunk, and charge port.",
-    "light_control": "Control ambient, cabin, headlight, and fog lights.",
-    "audio_control": "Control in-car audio volume and mute state.",
-    "display_control": "Control central display brightness.",
+    "climate_control": "Control AC, temperature, fan, defrost, air direction, recirculation, and steering wheel heat. Use device=temp for Celsius setpoint, device=fan for fan level, device=defrost for windshield defrost.",
+    "seat_control": "Control seat cooling, heating, and massage. Use position=driver/passenger/rear_left/rear_right/all when the user mentions a seat.",
+    "body_control": "Control windows, sunroof, mirrors, locks, trunk, and charge port. Use device=window for window percentage commands and position for driver/passenger/rear/front.",
+    "light_control": "Control ambient, cabin, headlight, and fog lights. Use value only within the tool enum, not free-form brightness words.",
+    "audio_control": "Control in-car audio volume and mute state. Use action=mute/unmute/set/reset and level only for numeric volume.",
+    "display_control": "Control central display brightness. Use device=brightness and value from the allowed enum/schema.",
     "connectivity_control": "Control Wi-Fi, Bluetooth, and Wi-Fi hotspot.",
-    "drive_system": "Control drive mode, regenerative braking, and ADAS settings.",
+    "drive_system": "Control drive mode, regenerative braking, and ADAS settings. Use device=drive_mode for eco/sport/normal-style driving mode commands.",
     "comfort_control": "Control perfume diffuser and privacy mode.",
     "search_places": "Search for places or points of interest.",
     "compute_routes": "Compute routes to a destination.",

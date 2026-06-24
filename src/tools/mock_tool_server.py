@@ -7,7 +7,7 @@ from typing import Any
 
 from src.evaluator.tool_schema_validator import validate_tool_schema
 from src.evaluator.tool_scope_validator import validate_tool_scope
-from src.io import read_json, write_jsonl
+from src.io import deep_subset, read_json, write_jsonl
 
 
 @dataclass
@@ -109,8 +109,51 @@ class MockToolServer:
 
         if self.overlay.get("benchmark_track") == "full_duplex_repair_to_commit":
             self.state["committed_intent"] = tool
+            self._record_fdrc_commit(tool, args)
         else:
             self.state["committed_intent"] = self.task.get("id")
+
+    def _record_fdrc_commit(self, tool: str, args: dict) -> None:
+        committed_action = {
+            "tool": tool,
+            "args": deepcopy(args),
+        }
+        if self.tool_call_log and self.tool_call_log[-1].get("t_ms") is not None:
+            committed_action["t_ms"] = self.tool_call_log[-1]["t_ms"]
+        self.state["fdrc"] = {
+            "speech_overlay_id": self.overlay.get("speech_overlay_id"),
+            "initial_intent": deepcopy(self.overlay.get("initial_intent")),
+            "final_intent": self.overlay.get("final_intent"),
+            "commit_status": "committed",
+            "committed_action": committed_action,
+            "old_intent_committed": self._matches_any(
+                {"tool": tool, "args": args}, self.overlay.get("forbidden_tool_calls", [])
+            ),
+            "commit_after_repair": self._commit_after_allowed_window(committed_action),
+        }
+
+    def _commit_after_allowed_window(self, action: dict) -> bool | None:
+        t_ms = action.get("t_ms")
+        if not isinstance(t_ms, int):
+            return None
+        allowed_after = next(
+            (
+                event.get("t_ms")
+                for event in self.overlay.get("voice_timeline", [])
+                if event.get("event") == "tool_commit_allowed_after"
+                and isinstance(event.get("t_ms"), int)
+            ),
+            None,
+        )
+        return None if allowed_after is None else t_ms >= allowed_after
+
+    @staticmethod
+    def _matches_any(actual: dict, expected_calls: list[dict]) -> bool:
+        return any(
+            expected.get("tool") == actual.get("tool")
+            and deep_subset(expected.get("args", {}), actual.get("args", {}))
+            for expected in expected_calls
+        )
 
     def _matches_expected_prefix(self, expected: list[dict]) -> bool:
         if len(self.tool_call_log) != len(expected):
@@ -126,6 +169,24 @@ class MockToolServer:
         return f"{tool} executed with {args}"
 
     def final_state(self) -> dict:
+        if (
+            self.overlay.get("benchmark_track") == "full_duplex_repair_to_commit"
+            and self.overlay.get("final_intent") == "cancel"
+            and not any(result.get("success") is True for result in self.tool_results)
+        ):
+            self.state["committed_intent"] = "cancel"
+            self.state.setdefault(
+                "fdrc",
+                {
+                    "speech_overlay_id": self.overlay.get("speech_overlay_id"),
+                    "initial_intent": deepcopy(self.overlay.get("initial_intent")),
+                    "final_intent": "cancel",
+                    "commit_status": "cancelled",
+                    "committed_action": None,
+                    "old_intent_committed": False,
+                    "commit_after_repair": True,
+                },
+            )
         return deepcopy(self.state)
 
     def save_tool_log(self, path: str | Path) -> None:

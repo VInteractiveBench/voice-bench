@@ -127,6 +127,9 @@ class OpenAIRealtimeViviAdapter(ViviAgentAdapter):
         )
         await self._send({"type": "response.create"})
 
+    async def cancel_response(self) -> None:
+        await self._send({"type": "response.cancel"})
+
     async def close(self) -> None:
         if self._reader_task:
             self._reader_task.cancel()

@@ -287,7 +287,8 @@ Output:
 Dashboard local đọc kết quả trong `results/` và hỗ trợ chạy benchmark presets.
 
 ```powershell
-conda run -n base python -m speech_interaction.dashboard --host 127.0.0.1 --port 8765
+cd C:\Users\Admin\Desktop\voice-bench
+conda run -n base python -m src.dashboard --host 127.0.0.1 --port 8765
 ```
 
 Mở:

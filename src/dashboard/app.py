@@ -78,6 +78,7 @@ def create_app(results_dir: str = "results") -> FastAPI:
         domain: str | None = None,
         mode: str | None = None,
         failure: str | None = None,
+        validity: str | None = None,
         passed: bool | None = Query(default=None),
     ) -> dict[str, Any]:
         try:
@@ -87,6 +88,7 @@ def create_app(results_dir: str = "results") -> FastAPI:
                 domain=domain,
                 mode=mode,
                 failure=failure,
+                validity=validity,
                 passed=passed,
             )
         except RunNotFound as exc:

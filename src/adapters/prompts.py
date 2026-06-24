@@ -19,6 +19,14 @@ You must:
 11. Respond concisely in Vietnamese.
 """
 
+FDRC_PROMPT = """Full-duplex repair-to-commit rules:
+1. Treat the latest user utterance as authoritative.
+2. If the user says a correction such as "à không", "không phải", "đổi thành", or "ý tôi là", ignore the old intent and execute only the corrected final intent.
+3. If the user says "thôi", "hủy", "bỏ đi", or any cancellation, do not call any side-effect tool.
+4. Do not commit a tool call while the user is still correcting or before the repair utterance has been processed.
+5. If you are already speaking and the user interrupts, stop responding to the old intent and handle the interruption.
+"""
+
 
 def load_domain_policy(domain: str) -> str:
     path = Path("data") / "tau2" / "domains" / domain / "policy.md"
@@ -46,8 +54,11 @@ def build_system_prompt(
             == "full_duplex_repair_to_commit",
         },
     }
+    prompt = CORE_PROMPT
+    if overlay.get("benchmark_track") == "full_duplex_repair_to_commit":
+        prompt += "\n\n" + FDRC_PROMPT
     return (
-        CORE_PROMPT
+        prompt
         + "\n\nDomain policy:\n"
         + load_domain_policy(task["domain"])
         + "\n\nEpisode context:\n"

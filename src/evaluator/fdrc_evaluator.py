@@ -5,6 +5,7 @@ from copy import deepcopy
 from .common import evaluate_common, summarize_shared, tool_call_matches
 from .fdrc_contract import summarize_fdrc_contract
 from .failure_taxonomy import FailureType, primary_failure
+from .fdrc_validity import classify_fdrc_validity, summarize_fdrc_validity
 from .voice_event_evaluator import evaluate_yield, event_time
 
 
@@ -126,6 +127,7 @@ def evaluate_fdrc_episode(episode: dict, overlay: dict, task: dict) -> dict:
         for event in result.get("voice_events", [])
     )
     cancelled = overlay.get("final_intent") == "cancel"
+    fdrc_validity = classify_fdrc_validity(result, overlay)
     if forbidden_called:
         result["failure_types"].extend(
             [FailureType.FORBIDDEN_TOOL_CALL, FailureType.OLD_INTENT_COMMITTED]
@@ -140,6 +142,8 @@ def evaluate_fdrc_episode(episode: dict, overlay: dict, task: dict) -> dict:
         result["failure_types"].append(FailureType.YIELD_LATENCY_TOO_HIGH)
     if missing_observed:
         result["failure_types"].append(FailureType.MISSING_OBSERVED_EVENT)
+    if not fdrc_validity.get("valid"):
+        result["failure_types"].extend(fdrc_validity.get("reasons", []))
     if (
         early_commit
         or commit_before_repair_processed
@@ -150,6 +154,7 @@ def evaluate_fdrc_episode(episode: dict, overlay: dict, task: dict) -> dict:
         result["failure_types"].append(FailureType.POLICY_VIOLATION)
     result["failure_types"] = list(dict.fromkeys(result["failure_types"]))
     result["primary_failure_type"] = primary_failure(result["failure_types"])
+    result["fdrc_validity"] = fdrc_validity
     result["repair"] = {
         "initial_intent": overlay.get("initial_intent"),
         "final_intent": overlay.get("final_intent"),
@@ -157,6 +162,8 @@ def evaluate_fdrc_episode(episode: dict, overlay: dict, task: dict) -> dict:
         "old_intent_committed": forbidden_called,
         "correction_uptaken": correction_uptaken,
         "forbidden_tool_called": forbidden_called,
+        "cancel_respected": bool(cancelled and not calls),
+        "tool_call_count": len(calls),
         "duplicate_final_commit": duplicate_final_commit,
         "assistant_speaking_before_interrupt": assistant_speaking_before_interrupt,
         "missing_observed_events": missing_observed,
@@ -175,13 +182,45 @@ def evaluate_fdrc_episode(episode: dict, overlay: dict, task: dict) -> dict:
         result["scores"]["task_pass"]
         and result["scores"]["policy_pass"]
         and result["scores"]["voice_pass"]
+        and result["fdrc_validity"].get("valid")
         and not result["failure_types"]
     )
     return result
 
 
 def summarize_fdrc(episodes: list[dict]) -> dict:
+    validity = summarize_fdrc_validity(episodes)
+    valid_rows = [
+        episode for episode in episodes if episode.get("fdrc_validity", {}).get("valid")
+    ]
+    raw = summarize_fdrc_contract(episodes)
+    valid_contract = summarize_fdrc_contract(valid_rows)
+    validity_rate = validity.get("fdrc_validity_rate")
+    if validity_rate is None or validity_rate < 0.70:
+        reportability_status = "NOT_REPORTABLE"
+    elif validity_rate < 0.90:
+        reportability_status = "VALIDITY_ONLY"
+    else:
+        reportability_status = "REPORTABLE_DOMAIN"
+    reportable = reportability_status.startswith("REPORTABLE")
     return {
         **summarize_shared(episodes),
-        **summarize_fdrc_contract(episodes),
+        **raw,
+        **validity,
+        "total_episode_count": len(episodes),
+        "reportability_status": reportability_status,
+        "raw_fdrc_pass_at_1": raw.get("fdrc_pass_at_1"),
+        "performance_fdrc_pass_at_1": (
+            valid_contract.get("fdrc_pass_at_1") if reportable else None
+        ),
+        "performance_yield_latency_p50_ms": (
+            valid_contract.get("yield_latency_p50_ms") if reportable else None
+        ),
+        "performance_yield_latency_p95_ms": (
+            valid_contract.get("yield_latency_p95_ms") if reportable else None
+        ),
+        "performance_yield_latency_pass_rate": (
+            valid_contract.get("yield_latency_pass_rate") if reportable else None
+        ),
+        "performance_metric_contract": valid_contract.get("metric_contract", {}),
     }
