@@ -728,7 +728,9 @@ Add these functions near the other view helpers (e.g. after `metricCard`):
       bodyHtml = `<p class="modal-note">${esc(data.note_vi || "Không có phân tích theo episode.")}</p>`;
     } else {
       const ratio = H.formatRatio(data.numerator, data.denominator);
-      const computed = data.unit === "count" ? H.fmtInt(data.value) : H.fmtPct(data.value);
+      const fmtVal = (v) => (data.unit === "count" ? H.fmtInt(v) : H.fmtPct(v));
+      const headline = fmtVal(data.value);              // displayed value (matches the card)
+      const recomputed = fmtVal(data.recomputed_value); // recomputed from episodes = num/denom
       const eps = (data.numerator_episodes || []);
       const epTable = eps.length
         ? `<table class="modal-table"><thead><tr><th>episode</th><th>domain</th><th>persona</th><th>kết quả</th></tr></thead>
@@ -737,15 +739,19 @@ Add these functions near the other view helpers (e.g. after `metricCard`):
       const explorerLink = data.explorer_filter
         ? `<a class="btn btn-ghost" id="modal-explorer" href="${H.buildHash({ tab: "fdrc", view: "episodes", runId })}">Mở Episode Explorer →</a>`
         : "";
+      const divergeWarn = data.value_matches_recomputed === false
+        ? `<div class="modal-diverge">⚠ Giá trị hiển thị (${esc(headline)}, từ ${esc(data.metric_source)}) KHÁC giá trị tính lại từ episode (${esc(recomputed)} = ${esc(ratio)}). Cần kiểm tra metrics.json.</div>`
+        : "";
       bodyHtml = `
         <div class="modal-formula"><code>${esc(data.formula_vi)}</code></div>
         <div class="modal-calc">
-          <span class="modal-calc-num">${esc(computed)}</span>
+          <span class="modal-calc-num">${esc(headline)}</span>
           <span class="modal-calc-eq">=</span>
           <span class="modal-calc-ratio">${esc(ratio)}</span>
           <span class="modal-calc-lbl">(${esc(data.numerator_label_vi)} ÷ ${esc(data.row_set_label_vi)})</span>
         </div>
-        <div class="modal-src">nguồn: ${esc(data.metric_source)} · hash ${data.metrics_hash_valid ? "khớp" : "KHÔNG khớp"} · scope: ${esc(data.scope)}</div>
+        ${divergeWarn}
+        <div class="modal-src">nguồn: ${esc(data.metric_source)} · hash ${data.metrics_hash_valid ? "khớp" : "KHÔNG khớp"} · scope: ${esc(data.scope)} · tính lại: ${esc(recomputed)}</div>
         <h4>Episode tử số (${eps.length})</h4>
         ${epTable}
         ${explorerLink}`;
@@ -850,6 +856,8 @@ Append to the end of `src/dashboard/static/styles.css`:
 .modal-calc-ratio { font-family: var(--mono); font-size: 16px; color: var(--text); }
 .modal-calc-lbl { font-size: 12px; color: var(--muted); }
 .modal-src { font-family: var(--mono); font-size: 11.5px; color: var(--faint); margin-bottom: 16px; }
+.modal-diverge { background: var(--fail-dim); border: 1px solid var(--fail); border-radius: var(--r);
+  color: var(--fail); font-size: 12.5px; padding: 9px 11px; margin-bottom: 12px; }
 .modal h4 { margin: 6px 0 8px; font-size: 13px; color: var(--text-hi); }
 .modal-table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-bottom: 14px; }
 .modal-table th { text-align: left; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--line);
