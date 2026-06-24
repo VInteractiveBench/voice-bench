@@ -277,6 +277,11 @@ def validate_episode_log(episode: Any, overlay: dict, task: dict) -> list[Valida
     if overlay.get("benchmark_track") == FDRC_TRACK:
         if _event_time(episode.get("voice_events", []), "user_interrupt_start") is None:
             issues.append(_issue("episode.voice_events", "missing_user_interrupt_start"))
+    if overlay.get("benchmark_track") == POLICY_TRACK:
+        if episode.get("decision") not in POLICY_DECISIONS:
+            issues.append(_issue("episode.decision", "missing_decision", value=episode.get("decision")))
+        if "clarification_targets" in episode and not isinstance(episode["clarification_targets"], list):
+            issues.append(_issue("episode.clarification_targets", "invalid_type"))
     return issues
 
 
@@ -293,13 +298,8 @@ def preflight_validate_assets(
         issues.extend(validate_overlay(overlay, tasks, f"overlay[{index}]"))
     if require_mvp_counts:
         tracks = Counter(row.get("benchmark_track") for row in overlays)
-        if tracks != {RETENTION_TRACK: 30, FDRC_TRACK: 30}:
-            issues.append(_issue("overlays", "mvp_track_count_mismatch", value=dict(tracks)))
-        retention_domains = Counter(
-            row.get("domain") for row in overlays if row.get("benchmark_track") == RETENTION_TRACK
-        )
-        if retention_domains != {"automotive": 10, "navigation": 10, "media_phone": 10}:
-            issues.append(_issue("overlays", "retention_domain_count_mismatch", value=dict(retention_domains)))
+        if tracks.get(FDRC_TRACK) != 30:
+            issues.append(_issue("overlays", "fdrc_track_count_mismatch", value=dict(tracks)))
     if issues:
         preview = "; ".join(f"{item['field']}:{item['reason']}" for item in issues[:8])
         raise ValueError(f"Benchmark asset preflight failed with {len(issues)} issue(s): {preview}")

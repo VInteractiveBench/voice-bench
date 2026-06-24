@@ -70,3 +70,20 @@ def test_policy_clarify_requires_question():
     )
     issues = schema.validate_overlay(overlay, tasks)
     assert any(i["reason"] == "clarify_requires_must_ask_about" for i in issues)
+
+
+def test_policy_episode_requires_decision():
+    overlay = _policy_overlay()
+    task = {"id": "pg_x", "domain": "automotive"}
+    episode = {
+        "episode_id": "e1", "base_task_id": "pg_x", "speech_overlay_id": "pg_x_001",
+        "benchmark_track": "voice_policy_command_gating", "domain": "automotive",
+        "mode": "voice_policy_gating", "initial_state": {}, "final_state": {},
+        "user_transcript": ["x"], "assistant_transcript": ["y"], "captured_slots": {},
+        "tool_calls": [], "tool_results": [], "voice_events": [], "latency": {},
+    }
+    issues = schema.validate_episode_log(episode, overlay, task)
+    assert any(i["reason"] == "missing_decision" for i in issues)
+    episode["decision"] = "execute"
+    issues2 = schema.validate_episode_log(episode, overlay, task)
+    assert not any(i["reason"] == "missing_decision" for i in issues2)
