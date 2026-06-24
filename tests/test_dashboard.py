@@ -1,9 +1,10 @@
 import json
 
+import pytest
 from fastapi.testclient import TestClient
 
 from src.dashboard.app import create_app
-from src.dashboard.service import DashboardStore, FDRC_TRACK
+from src.dashboard.service import DashboardStore, FDRC_TRACK, RunNotFound
 from src.evaluator.fdrc_contract import FDRC_REQUIRED_METRICS
 from src.fdrc_run_inspector import compare_layers, debug_rows
 from src.io import load_base_tasks, load_overlays
@@ -278,8 +279,23 @@ def test_explain_metric_unsupported_key(tmp_path):
 
 
 def test_explain_metric_missing_run_raises(tmp_path):
-    import pytest
-    from src.dashboard.service import RunNotFound
     store = DashboardStore(tmp_path)
     with pytest.raises(RunNotFound):
         store.explain_metric("does_not_exist", "forbidden_tool_call_rate")
+
+
+def test_explain_metric_reports_displayed_value_when_metrics_json_valid(tmp_path):
+    run = tmp_path / "fdrc_explain_run3"
+    run.mkdir()
+    episodes = [sample_fdrc_episode(episode_id="a1"), sample_fdrc_episode(episode_id="a2")]
+    write_jsonl(run / "episodes.jsonl", episodes)
+    # metrics.json with a matching episode_set_hash but a deliberately wrong value
+    write_json(run / "metrics.json", metrics_with_metadata(episodes, {"forbidden_tool_call_rate": 0.999}))
+
+    store = DashboardStore(tmp_path)
+    result = store.explain_metric("fdrc_explain_run3", "forbidden_tool_call_rate", track=FDRC_TRACK)
+    assert result["metric_source"] == "metrics.json"
+    assert result["metrics_hash_valid"] is True
+    assert result["value"] == 0.999                      # headline = displayed (from metrics.json)
+    assert result["recomputed_value"] != 0.999           # recomputed from episodes differs
+    assert result["value_matches_recomputed"] is False

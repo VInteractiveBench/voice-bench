@@ -1056,7 +1056,7 @@ class DashboardStore:
 
     def _scoped_evaluation_episodes(
         self, run_id: str, track: str | None = None
-    ) -> tuple[list[dict[str, Any]], str | None, str, bool]:
+    ) -> tuple[list[dict[str, Any]], str | None, str, bool, dict[str, Any]]:
         path, metrics, raw_episodes, _errors = self._load_run(run_id)
         selected_track = track or _dominant_track(raw_episodes)
         raw_scoped = [
@@ -1070,7 +1070,7 @@ class DashboardStore:
         ]
         metrics_valid = bool(metrics) and metrics.get("episode_set_hash") == episode_set_hash(raw_scoped)
         metric_source = "metrics.json" if metrics_valid else "episodes.jsonl"
-        return scoped, selected_track, metric_source, metrics_valid
+        return scoped, selected_track, metric_source, metrics_valid, (metrics or {})
 
     def run_summary(self, run_id: str, track: str | None = None) -> dict[str, Any]:
         path, metrics, raw_episodes, errors = self._load_run(run_id)
@@ -1176,9 +1176,7 @@ class DashboardStore:
     def explain_metric(
         self, run_id: str, metric_key: str, track: str | None = None
     ) -> dict[str, Any]:
-        if not (self.results_dir / run_id).exists():
-            raise RunNotFound(run_id)
-        scoped, selected_track, metric_source, metrics_valid = self._scoped_evaluation_episodes(
+        scoped, selected_track, metric_source, metrics_valid, metrics = self._scoped_evaluation_episodes(
             run_id, track
         )
         label, description, unit, group = _metric_meta(metric_key)
@@ -1199,7 +1197,7 @@ class DashboardStore:
         }
         if not explanation.get("supported"):
             base["supported"] = False
-            base["note_vi"] = "Metric tổng hợp — không có phân tích theo từng episode."
+            base["note_vi"] = "Metric không hỗ trợ phân tích theo episode."
             return base
         by_id = {str(e.get("episode_id")): e for e in scoped}
         numerator_episodes = []
@@ -1216,6 +1214,17 @@ class DashboardStore:
                     "fdrc_valid": bool(episode.get("fdrc_validity", {}).get("valid")),
                 }
             )
+        recomputed = explanation["value"]
+        if metrics_valid and metric_key in metrics:
+            displayed = metrics.get(metric_key)
+        else:
+            displayed = recomputed
+        if displayed is None and recomputed is None:
+            matches = True
+        elif isinstance(displayed, (int, float)) and isinstance(recomputed, (int, float)):
+            matches = abs(displayed - recomputed) < 1e-9
+        else:
+            matches = displayed == recomputed
         base.update(
             {
                 "supported": True,
@@ -1225,7 +1234,9 @@ class DashboardStore:
                 "numerator_label_vi": explanation["numerator_label_vi"],
                 "numerator": explanation["numerator"],
                 "denominator": explanation["denominator"],
-                "value": explanation["value"],
+                "value": displayed,
+                "recomputed_value": recomputed,
+                "value_matches_recomputed": matches,
                 "numerator_episodes": numerator_episodes,
                 "explorer_filter": explanation["explorer_filter"],
             }
