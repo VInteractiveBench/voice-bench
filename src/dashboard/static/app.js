@@ -1,7 +1,7 @@
 /* ============================================================
    Voice·Bench — Forensic Console (app)
    Vanilla JS. Reads the unchanged FastAPI /api routes.
-   Two tabs: 01 Full-Duplex (FDRC), 02 Reserved (placeholder).
+   Two tabs: 01 Full-Duplex (FDRC), 02 Leaderboard.
    ============================================================ */
 (() => {
   "use strict";
@@ -664,20 +664,42 @@
   function truncate(s, n) { s = String(s); return s.length > n ? s.slice(0, n - 1) + "…" : s; }
 
   // ================================================================
-  // VIEW: Reserved (placeholder tab)
+  // VIEW: Leaderboard
   // ================================================================
-  function renderReserved() {
-    setStatus("reserved / —", "placeholder");
-    view.innerHTML = `<div class="reserved">
-      <pre class="ascii">    ┌───────────────┐
-    │  ▢  ▢  ▢  ▢   │
-    │   awaiting    │
-    │   benchmark   │
-    └───────────────┘</pre>
-      <span class="slot">Benchmark slot · 02</span>
-      <h1>Reserved track</h1>
-      <p class="tagline">Tab thứ hai để dành cho một benchmark chưa chốt. Khung điều hướng và design system đã sẵn sàng — chỉ cần gắn data loader khi quyết định xong.</p>
-    </div>`;
+  async function renderReserved() {
+    setStatus("leaderboard", "loading…");
+    let rows;
+    try {
+      rows = await getJSON(`/api/leaderboard?track=${FDRC}`);
+    } catch (e) {
+      view.innerHTML = stateBlock({ glyph: "⚠", title: "Không tải được leaderboard", body: esc(e.message), error: true });
+      return;
+    }
+    if (!rows.length) {
+      view.innerHTML = stateBlock({ glyph: "∅", title: "Chưa có run FDRC nào", body: "Chạy run_fdrc với --agent rồi quay lại." });
+      return;
+    }
+    const head = ["Model", "Provider", "Yield", "Episodes", "Status", "Validity", "Pass@1", "Yield p50", "Yield p95", "Forbidden", "Cancel"];
+    const body = rows.map((raw) => {
+      const r = H.leaderboardRow(raw);
+      return `<tr class="${r.reportable ? "" : "muted"}">
+        <td><b>${esc(r.model)}</b><div class="sub">${esc(r.run_id)}</div></td>
+        <td>${esc(r.provider)}</td>
+        <td>${esc(r.yield_mode)}</td>
+        <td class="cell-num">${esc(r.episodes)}</td>
+        <td>${esc(r.reportability_status)}</td>
+        <td class="cell-num">${esc(r.validityCell)}</td>
+        <td class="cell-num">${esc(r.passCell)}</td>
+        <td class="cell-num">${esc(r.yieldP50)}</td>
+        <td class="cell-num">${esc(r.yieldP95)}</td>
+        <td class="cell-num">${esc(r.forbiddenCell)}</td>
+        <td class="cell-num">${esc(r.cancelCell)}</td>
+      </tr>`;
+    }).join("");
+    view.innerHTML = `<section class="panel"><h2>FDRC Leaderboard</h2>
+      <table class="lb"><thead><tr>${head.map((h) => `<th>${esc(h)}</th>`).join("")}</tr></thead>
+      <tbody>${body}</tbody></table></section>`;
+    setStatus("leaderboard", `${rows.length} runs`);
   }
 
   // ---- router -----------------------------------------------------
