@@ -348,7 +348,10 @@
       bodyHtml = `<p class="modal-note">${esc(data.note_vi || "Không có phân tích theo episode.")}</p>`;
     } else {
       const ratio = H.formatRatio(data.numerator, data.denominator);
-      const fmtVal = (v) => (data.unit === "count" ? H.fmtInt(v) : H.fmtPct(v));
+      const fmtVal = (v) =>
+        data.unit === "count" ? H.fmtInt(v)
+        : data.unit === "ms" ? H.fmtMs(v)
+        : H.fmtPct(v);
       const headline = fmtVal(data.value);              // displayed value (matches the card)
       const recomputed = fmtVal(data.recomputed_value); // recomputed from episodes = num/denom
       const eps = (data.numerator_episodes || []);
@@ -400,7 +403,9 @@
     } catch (e) {
       shell.querySelector(".modal").innerHTML =
         `<div class="modal-head"><div class="modal-title">Lỗi</div><button class="modal-x" id="modal-close">✕</button></div><p class="modal-note">${esc(e.message)}</p>`;
-      shell.addEventListener("click", (ev) => { if (ev.target === shell || ev.target.id === "modal-close") closeMetricModal(); });
+      const closeBtn = shell.querySelector("#modal-close");
+      if (closeBtn) closeBtn.addEventListener("click", closeMetricModal);
+      shell.addEventListener("click", (ev) => { if (ev.target === shell) closeMetricModal(); });
       return;
     }
     shell.outerHTML = renderMetricModal(runId, data);
@@ -411,7 +416,14 @@
     document.getElementById("modal-close").addEventListener("click", closeMetricModal);
     const explorer = document.getElementById("modal-explorer");
     if (explorer) {
-      explorer.addEventListener("click", () => closeMetricModal());
+      explorer.addEventListener("click", () => {
+        const f = (data && data.explorer_filter) || {};
+        explorerFilters.validity = f.validity || "";
+        explorerFilters.passed = f.passed || "";
+        explorerFilters.failure = f.failure || "";
+        explorerFilters.domain = f.domain || "";
+        closeMetricModal();
+      });
     }
   }
 
