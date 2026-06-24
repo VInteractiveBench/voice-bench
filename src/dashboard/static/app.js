@@ -247,6 +247,16 @@
     </div>`;
 
     document.getElementById("ov-body").innerHTML = banner + statline + renderMetricGroups(summary);
+    const ovBody = document.getElementById("ov-body");
+    function onMetricActivate(target) {
+      const card = target.closest(".metric-clickable");
+      if (!card) return;
+      openMetricModal(runId, card.getAttribute("data-key"));
+    }
+    ovBody.addEventListener("click", (e) => onMetricActivate(e.target));
+    ovBody.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onMetricActivate(e.target); }
+    });
     setStatus(`fdrc / overview / ${runId}`, `${summary.episode_count ?? 0} episodes`);
   }
 
@@ -298,11 +308,111 @@
       ? `<div class="metric-value null">${esc(m.null_reason || "N/A")}</div>`
       : `<div class="metric-value">${esc(H.fmtMetric(m))}</div>`;
     const denom = m.denominator ? `n=${esc(m.denominator)}` : "";
-    return `<div class="metric ${metricStatusClass(m.status)}">
+    return `<div class="metric ${metricStatusClass(m.status)} metric-clickable" data-key="${esc(m.key)}" role="button" tabindex="0">
       <div class="metric-label">${esc(m.label || m.key)}</div>
       ${valHtml}
       <div class="metric-foot"><span>${esc(m.group || "")}</span><span>${denom}</span></div>
     </div>`;
+  }
+
+  async function fetchExplain(runId, key) {
+    return getJSON(
+      `/api/runs/${encodeURIComponent(runId)}/metrics/${encodeURIComponent(key)}/explain?track=${FDRC}`
+    );
+  }
+
+  function closeMetricModal() {
+    const m = document.getElementById("metric-modal");
+    if (m) m.remove();
+    document.removeEventListener("keydown", onModalKeydown);
+  }
+
+  function onModalKeydown(e) {
+    if (e.key === "Escape") closeMetricModal();
+  }
+
+  function explainEpisodeRow(runId, ep) {
+    const persona = [ep.accent_region, ep.speech_speed].filter(Boolean).join("·") || "—";
+    const status = ep.passed === true ? "pass" : ep.passed === false ? "fail" : "—";
+    return `<tr>
+      <td><a href="${H.buildHash({ tab: "fdrc", view: "episode", runId, episodeId: ep.episode_id })}">${esc(ep.episode_id)}</a></td>
+      <td>${esc(ep.domain || "—")}</td>
+      <td>${esc(persona)}</td>
+      <td>${esc(status)}</td>
+    </tr>`;
+  }
+
+  function renderMetricModal(runId, data) {
+    let bodyHtml;
+    if (!data.supported) {
+      bodyHtml = `<p class="modal-note">${esc(data.note_vi || "Không có phân tích theo episode.")}</p>`;
+    } else {
+      const ratio = H.formatRatio(data.numerator, data.denominator);
+      const fmtVal = (v) => (data.unit === "count" ? H.fmtInt(v) : H.fmtPct(v));
+      const headline = fmtVal(data.value);              // displayed value (matches the card)
+      const recomputed = fmtVal(data.recomputed_value); // recomputed from episodes = num/denom
+      const eps = (data.numerator_episodes || []);
+      const epTable = eps.length
+        ? `<table class="modal-table"><thead><tr><th>episode</th><th>domain</th><th>persona</th><th>kết quả</th></tr></thead>
+            <tbody>${eps.map((ep) => explainEpisodeRow(runId, ep)).join("")}</tbody></table>`
+        : `<p class="modal-note">Tử số rỗng — không episode nào thỏa điều kiện.</p>`;
+      const explorerLink = data.explorer_filter
+        ? `<a class="btn btn-ghost" id="modal-explorer" href="${H.buildHash({ tab: "fdrc", view: "episodes", runId })}">Mở Episode Explorer →</a>`
+        : "";
+      const divergeWarn = data.value_matches_recomputed === false
+        ? `<div class="modal-diverge">⚠ Giá trị hiển thị (${esc(headline)}, từ ${esc(data.metric_source)}) KHÁC giá trị tính lại từ episode (${esc(recomputed)} = ${esc(ratio)}). Cần kiểm tra metrics.json.</div>`
+        : "";
+      bodyHtml = `
+        <div class="modal-formula"><code>${esc(data.formula_vi)}</code></div>
+        <div class="modal-calc">
+          <span class="modal-calc-num">${esc(headline)}</span>
+          <span class="modal-calc-eq">=</span>
+          <span class="modal-calc-ratio">${esc(ratio)}</span>
+          <span class="modal-calc-lbl">(${esc(data.numerator_label_vi)} ÷ ${esc(data.row_set_label_vi)})</span>
+        </div>
+        ${divergeWarn}
+        <div class="modal-src">nguồn: ${esc(data.metric_source)} · hash ${data.metrics_hash_valid ? "khớp" : "KHÔNG khớp"} · scope: ${esc(data.scope)} · tính lại: ${esc(recomputed)}</div>
+        <h4>Episode tử số (${eps.length})</h4>
+        ${epTable}
+        ${explorerLink}`;
+    }
+    return `<div class="modal-backdrop" id="metric-modal">
+      <div class="modal" role="dialog" aria-modal="true" aria-label="${esc(data.label || data.key)}">
+        <div class="modal-head">
+          <div><div class="modal-title">${esc(data.label || data.key)}</div>
+          <div class="modal-key">${esc(data.key)}</div></div>
+          <button class="modal-x" id="modal-close" aria-label="Đóng">✕</button>
+        </div>
+        ${data.description ? `<p class="modal-desc">${esc(data.description)}</p>` : ""}
+        ${bodyHtml}
+      </div>
+    </div>`;
+  }
+
+  async function openMetricModal(runId, key) {
+    closeMetricModal();
+    const shell = el(`<div class="modal-backdrop" id="metric-modal"><div class="modal"><div class="skeleton"></div></div></div>`);
+    document.body.appendChild(shell);
+    document.addEventListener("keydown", onModalKeydown);
+    let data;
+    try {
+      data = await fetchExplain(runId, key);
+    } catch (e) {
+      shell.querySelector(".modal").innerHTML =
+        `<div class="modal-head"><div class="modal-title">Lỗi</div><button class="modal-x" id="modal-close">✕</button></div><p class="modal-note">${esc(e.message)}</p>`;
+      shell.addEventListener("click", (ev) => { if (ev.target === shell || ev.target.id === "modal-close") closeMetricModal(); });
+      return;
+    }
+    shell.outerHTML = renderMetricModal(runId, data);
+    const modal = document.getElementById("metric-modal");
+    modal.addEventListener("click", (ev) => {
+      if (ev.target === modal) closeMetricModal();
+    });
+    document.getElementById("modal-close").addEventListener("click", closeMetricModal);
+    const explorer = document.getElementById("modal-explorer");
+    if (explorer) {
+      explorer.addEventListener("click", () => closeMetricModal());
+    }
   }
 
   // ================================================================
