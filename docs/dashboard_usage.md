@@ -86,6 +86,21 @@ Metric không có mapping trực tiếp sẽ hiển thị thông báo và không
 
 Reference-agent chỉ dùng để kiểm tra evaluator/plumbing. Không báo cáo reference, sample hoặc internal run như performance thật của Vivi/model provider.
 
+## Chọn Run (Run Selector)
+
+Dropdown `FDRC Run` mặc định chỉ hiển thị các run **Benchmark** — tức run có `data_provenance = provider` (kết quả model thật, có thể báo cáo). Đây là "một điểm số thật" duy nhất.
+
+Các run còn lại được gom thành nhóm chẩn đoán và ẩn mặc định. Bật checkbox `Hiện run chẩn đoán` để xem chúng, hiển thị theo `<optgroup>`:
+
+| Nhóm | `data_provenance` | Ý nghĩa |
+|---|---|---|
+| Kết quả thật (model provider) | `provider` | Kết quả model thật, báo cáo được. |
+| Đối chiếu — kiểm bộ chấm | `reference`, `synthetic_reference` | Agent mẫu lý tưởng để kiểm bộ chấm; thường ~100%, không phải hiệu năng thật. |
+| Nội bộ — chạy thử khi dev | `internal` | Run thử khi phát triển (`_impl_check_*`, `_plan_check_*`); bỏ đi được. |
+| Dữ liệu mẫu | `sample` | Dữ liệu demo/mẫu. |
+
+Run mặc định được chọn là benchmark run mới nhất. Nếu mở dashboard bằng URL trỏ tới một run chẩn đoán, checkbox tự bật để run đó vẫn xuất hiện.
+
 ## Chạy Benchmark Từ Dashboard
 
 Nút `Chạy benchmark mới` mở modal tạo run mới. Reference-agent không gọi provider. Preset OpenAI có thể phát sinh chi phí API và phụ thuộc key trong `.env`.
