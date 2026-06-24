@@ -12,6 +12,7 @@ from typing import Any
 from src.io import load_base_tasks, load_overlays
 from src.evaluator.fdrc_evaluator import evaluate_fdrc_episode, summarize_fdrc
 from src.evaluator.fdrc_contract import summarize_fdrc_contract
+from src.evaluator.fdrc_explain import explain_fdrc_metric
 from src.evaluator.retention_evaluator import evaluate_retention_episode, summarize_retention
 from src.runner import episode_set_hash
 
@@ -1053,6 +1054,24 @@ class DashboardStore:
             })
         return rows
 
+    def _scoped_evaluation_episodes(
+        self, run_id: str, track: str | None = None
+    ) -> tuple[list[dict[str, Any]], str | None, str, bool, dict[str, Any]]:
+        path, metrics, raw_episodes, _errors = self._load_run(run_id)
+        selected_track = track or _dominant_track(raw_episodes)
+        raw_scoped = [
+            e for e in raw_episodes
+            if not selected_track or e.get("benchmark_track") == selected_track
+        ]
+        episodes = _evaluation_view(raw_episodes)
+        scoped = [
+            e for e in episodes
+            if not selected_track or e.get("benchmark_track") == selected_track
+        ]
+        metrics_valid = bool(metrics) and metrics.get("episode_set_hash") == episode_set_hash(raw_scoped)
+        metric_source = "metrics.json" if metrics_valid else "episodes.jsonl"
+        return scoped, selected_track, metric_source, metrics_valid, (metrics or {})
+
     def run_summary(self, run_id: str, track: str | None = None) -> dict[str, Any]:
         path, metrics, raw_episodes, errors = self._load_run(run_id)
         selected_track = track or _dominant_track(raw_episodes)
@@ -1153,6 +1172,76 @@ class DashboardStore:
             "top_yield_latency_episodes": top_yield_latency,
             "top_response_latency_episodes": top_response_latency,
         }
+
+    def explain_metric(
+        self, run_id: str, metric_key: str, track: str | None = None
+    ) -> dict[str, Any]:
+        scoped, selected_track, metric_source, metrics_valid, metrics = self._scoped_evaluation_episodes(
+            run_id, track
+        )
+        label, description, unit, group = _metric_meta(metric_key)
+        explanation = explain_fdrc_metric(metric_key, scoped) or {
+            "key": metric_key,
+            "supported": False,
+        }
+        base = {
+            "run_id": run_id,
+            "key": metric_key,
+            "label": label,
+            "description": description,
+            "unit": unit,
+            "group": group,
+            "benchmark_track": selected_track,
+            "metric_source": metric_source,
+            "metrics_hash_valid": metrics_valid,
+        }
+        if not explanation.get("supported"):
+            base["supported"] = False
+            base["note_vi"] = "Metric không hỗ trợ phân tích theo episode."
+            return base
+        by_id = {str(e.get("episode_id")): e for e in scoped}
+        numerator_episodes = []
+        for episode_id in explanation.get("numerator_episode_ids", []):
+            episode = by_id.get(episode_id, {})
+            numerator_episodes.append(
+                {
+                    "episode_id": episode_id,
+                    "base_task_id": episode.get("base_task_id"),
+                    "domain": episode.get("domain"),
+                    "accent_region": episode.get("accent_region"),
+                    "speech_speed": episode.get("speech_speed"),
+                    "passed": _score_pass(episode),
+                    "fdrc_valid": bool(episode.get("fdrc_validity", {}).get("valid")),
+                }
+            )
+        recomputed = explanation["value"]
+        if metrics_valid and metric_key in metrics:
+            displayed = metrics.get(metric_key)
+        else:
+            displayed = recomputed
+        if displayed is None and recomputed is None:
+            matches = True
+        elif isinstance(displayed, (int, float)) and isinstance(recomputed, (int, float)):
+            matches = abs(displayed - recomputed) < 1e-9
+        else:
+            matches = displayed == recomputed
+        base.update(
+            {
+                "supported": True,
+                "scope": explanation["scope"],
+                "formula_vi": explanation["formula_vi"],
+                "row_set_label_vi": explanation["row_set_label_vi"],
+                "numerator_label_vi": explanation["numerator_label_vi"],
+                "numerator": explanation["numerator"],
+                "denominator": explanation["denominator"],
+                "value": displayed,
+                "recomputed_value": recomputed,
+                "value_matches_recomputed": matches,
+                "numerator_episodes": numerator_episodes,
+                "explorer_filter": explanation["explorer_filter"],
+            }
+        )
+        return base
 
     def list_episodes(
         self,
