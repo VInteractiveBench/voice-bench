@@ -76,6 +76,44 @@
     return n + " / " + d;
   }
 
+  // ---- metric direction-aware coloring -------------------------------
+  // Rate metrics where HIGHER is better (low value = bad → red).
+  const GOOD_HIGH_METRICS = new Set([
+    "fdrc_pass_at_1", "pass_at_1", "raw_fdrc_pass_at_1", "performance_fdrc_pass_at_1",
+    "tool_exact_match", "state_match",
+    "text_pass_at_1", "clean_voice_pass_at_1", "cabin_voice_pass_at_1",
+    "clean_voice_retention", "voice_capability_retention", "critical_slot_accuracy",
+    "old_intent_suppression_rate", "correction_uptake_rate", "cancel_success_rate",
+    "yield_latency_pass_rate", "performance_yield_latency_pass_rate",
+    "fdrc_validity_rate",
+  ]);
+  // Rate metrics where HIGHER is worse (high value = bad → red).
+  const BAD_HIGH_METRICS = new Set([
+    "policy_violation_rate", "tool_validation_error_rate",
+    "out_of_scope_tool_call_rate", "hallucinated_tool_rate", "forbidden_tool_call_rate",
+    "voice_degradation_gap", "accent_gap", "speed_gap",
+  ]);
+
+  // Pick a tone class (s-pass | s-warn | s-fail | "") for a metric card by the
+  // metric's direction and value. Only rate metrics are colored; counts, ms,
+  // and unknown keys stay neutral so the grid isn't a wall of green.
+  function metricTone(key, value, unit) {
+    if (value === null || value === undefined || Number.isNaN(value)) return "";
+    if (unit !== "rate") return "";
+    const base = String(key).split(".")[0];
+    if (GOOD_HIGH_METRICS.has(base)) {
+      if (value >= 0.9) return "s-pass";
+      if (value >= 0.7) return "s-warn";
+      return "s-fail";
+    }
+    if (BAD_HIGH_METRICS.has(base)) {
+      if (value <= 0.05) return "s-pass";
+      if (value <= 0.2) return "s-warn";
+      return "s-fail";
+    }
+    return "";
+  }
+
   // Format a catalog metric {value, unit} into display text. Null-safe.
   function fmtMetric(metric) {
     if (!metric) return "—";
@@ -344,6 +382,7 @@
     fmtMs,
     fmtInt,
     formatRatio,
+    metricTone,
     fmtMetric,
     deriveReportability,
     validitySummary,
