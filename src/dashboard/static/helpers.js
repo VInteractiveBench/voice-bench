@@ -104,8 +104,9 @@
   const GOOD_HIGH_METRICS = new Set([
     "fdrc_pass_at_1", "pass_at_1", "raw_fdrc_pass_at_1", "performance_fdrc_pass_at_1",
     "tool_exact_match", "state_match",
-    "text_pass_at_1", "clean_voice_pass_at_1", "cabin_voice_pass_at_1",
-    "clean_voice_retention", "voice_capability_retention", "critical_slot_accuracy",
+    "policy_compliance_rate", "clarification_precision", "clarification_recall",
+    "state_conditioned_decision_accuracy", "final_state_correctness",
+    "response_honesty_rate", "tool_argument_accuracy",
     "old_intent_suppression_rate", "correction_uptake_rate", "cancel_success_rate",
     "yield_latency_pass_rate", "performance_yield_latency_pass_rate",
     "fdrc_validity_rate",
@@ -114,7 +115,6 @@
   const BAD_HIGH_METRICS = new Set([
     "policy_violation_rate", "tool_validation_error_rate",
     "out_of_scope_tool_call_rate", "hallucinated_tool_rate", "forbidden_tool_call_rate",
-    "voice_degradation_gap", "accent_gap", "speed_gap",
   ]);
 
   // Pick a tone class (s-pass | s-warn | s-fail | "") for a metric card by the
@@ -394,8 +394,15 @@
     };
   }
 
+  // Look up a decision-confusion-matrix count for an expected/agent pair.
+  function confusionCell(matrix, expected, agent) {
+    const row = (matrix || []).find((m) => m.expected === expected && m.agent === agent);
+    return row ? row.count : 0;
+  }
+
   return {
     FDRC_TRACK,
+    confusionCell,
     RUN_KIND_ORDER,
     RUN_KIND_LABELS,
     effectiveRunKind,
