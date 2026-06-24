@@ -1022,6 +1022,37 @@ class DashboardStore:
             )
         return sorted(runs, key=lambda row: row.get("updated_at") or "", reverse=True)
 
+    def leaderboard(self, track: str = "full_duplex_repair_to_commit") -> list[dict[str, Any]]:
+        rows = []
+        for run in self.list_runs():
+            if run.get("benchmark_track") != track:
+                continue
+            summary = self.run_summary(run["run_id"], track=track)
+            metrics = summary.get("metrics", {})
+            meta = summary.get("run_metadata", {}) or {}
+            rows.append({
+                "run_id": run["run_id"],
+                "provider": (meta.get("providers") or [None])[0],
+                "model": (meta.get("models") or [None])[0],
+                "yield_mode": (meta.get("fdrc_yield_modes") or [None])[0],
+                "run_kind": run.get("run_kind"),
+                "data_provenance": run.get("data_provenance"),
+                "episode_count": summary.get("episode_count"),
+                "updated_at": run.get("updated_at"),
+                "reportability_status": metrics.get("reportability_status"),
+                "fdrc_validity_rate": metrics.get("fdrc_validity_rate"),
+                "raw_fdrc_pass_at_1": metrics.get("raw_fdrc_pass_at_1"),
+                "performance_fdrc_pass_at_1": metrics.get("performance_fdrc_pass_at_1"),
+                "performance_yield_latency_p50_ms": metrics.get("performance_yield_latency_p50_ms"),
+                "performance_yield_latency_p95_ms": metrics.get("performance_yield_latency_p95_ms"),
+                "performance_yield_latency_pass_rate": metrics.get("performance_yield_latency_pass_rate"),
+                "forbidden_tool_call_rate": metrics.get("forbidden_tool_call_rate"),
+                "cancel_success_rate": metrics.get("cancel_success_rate"),
+                "correction_uptake_rate": metrics.get("correction_uptake_rate"),
+                "old_intent_suppression_rate": metrics.get("old_intent_suppression_rate"),
+            })
+        return rows
+
     def run_summary(self, run_id: str, track: str | None = None) -> dict[str, Any]:
         path, metrics, raw_episodes, errors = self._load_run(run_id)
         selected_track = track or _dominant_track(raw_episodes)
