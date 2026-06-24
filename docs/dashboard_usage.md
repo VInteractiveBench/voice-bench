@@ -6,7 +6,7 @@ Dashboard `Vivi Voice Bench` là công cụ local để đọc kết quả trong
 
 | Benchmark | Mục đích |
 |---|---|
-| `Text-to-Voice Capability Retention` | Đo mức giữ năng lực từ text baseline sang voice, bao gồm tool calls, arguments, final state và critical slots. |
+| `Policy-Grounded Voice Command Gating` | Đo xem agent có chọn đúng execute/clarify/refuse/defer theo policy và trạng thái xe, kèm decision confusion matrix và state-pair view. |
 | `Full-Duplex Repair-to-Commit` | Đo khả năng nhường lời khi user chen ngang, tiếp nhận sửa/hủy, chặn ý định cũ và chỉ commit ý định cuối cùng. |
 
 Dashboard đọc:
@@ -44,20 +44,20 @@ Metric catalog chuẩn hóa mỗi metric thành:
 
 ```json
 {
-  "key": "voice_capability_retention",
-  "label": "Giữ năng lực voice cabin",
+  "key": "policy_compliance_rate",
+  "label": "Tuân thủ policy",
   "value": 0.83,
   "unit": "rate",
-  "group": "retention",
+  "group": "policy_gating",
   "source": "metrics.json",
-  "denominator": 30,
+  "denominator": 24,
   "nullable": false,
   "null_reason": null,
   "status": "ok"
 }
 ```
 
-Các nhóm metric gồm `Overview`, `Tool / State`, `Policy`, `Text-to-Voice Retention`, `Retention Degradation`, `Full-Duplex Repair-to-Commit`, `Latency`, và `Contract / Data Quality`.
+Các nhóm metric gồm `Overview`, `Tool / State`, `Policy`, `Policy-Grounded Voice Command Gating`, `Full-Duplex Repair-to-Commit`, `Latency`, và `Contract / Data Quality`.
 
 ## Drilldown
 
