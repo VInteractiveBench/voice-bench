@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from src.evaluator.fdrc_contract import summarize_fdrc_contract
 from src.evaluator.fdrc_explain import explain_fdrc_metric, SUPPORTED_EXPLAIN_KEYS
+from src.evaluator.fdrc_validity import summarize_fdrc_validity
 
 
 def _episode(**overrides):
@@ -57,7 +58,7 @@ def test_explain_value_matches_contract_for_every_supported_key():
     for key in SUPPORTED_EXPLAIN_KEYS:
         if key in {"performance_fdrc_pass_at_1", "raw_fdrc_pass_at_1",
                    "valid_episode_count", "invalid_episode_count", "fdrc_validity_rate"}:
-            continue  # validity/scope-specific keys covered separately below
+            continue  # performance/raw have no contract counterpart; validity trio checked vs summarize_fdrc_validity below
         result = explain_fdrc_metric(key, episodes)
         assert result is not None and result["supported"], key
         expected = contract.get(key)
@@ -73,6 +74,15 @@ def test_explain_lists_numerator_episode_ids():
     assert forbidden["numerator"] == 1
     assert forbidden["denominator"] == 4
     assert forbidden["numerator_episode_ids"] == ["forbidden1"]
+
+
+def test_validity_metrics_match_summarize_fdrc_validity():
+    episodes = _episodes()  # all are benchmark_track == FDRC, so _rows() == episodes
+    validity = summarize_fdrc_validity(episodes)
+    assert explain_fdrc_metric("valid_episode_count", episodes)["value"] == validity["valid_episode_count"]
+    assert explain_fdrc_metric("invalid_episode_count", episodes)["value"] == validity["invalid_episode_count"]
+    rate = explain_fdrc_metric("fdrc_validity_rate", episodes)["value"]
+    assert abs(rate - validity["fdrc_validity_rate"]) < 1e-9
 
 
 def test_explain_unsupported_key_returns_supported_false():

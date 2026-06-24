@@ -149,6 +149,9 @@ _EXPLAIN_SPECS: dict[str, dict[str, Any]] = {
         "numerator_label_vi": "Episode cancel được tôn trọng (không side effect)",
         "explorer_filter": {"failure": "CANCEL_NOT_RESPECTED"},
     },
+    # NOTE: validity metrics use _rows() (track-filtered). summarize_fdrc_validity
+    # does not filter by track, so values match ONLY when the caller passes
+    # FDRC-track-scoped episodes (DashboardStore does this before calling).
     "fdrc_validity_rate": {
         "scope": "all",
         "row_set": _rows,
@@ -200,9 +203,11 @@ def explain_fdrc_metric(
     denominator = len(row_set)
     numerator = len(numerator_rows)
     if spec["unit"] == "count":
-        value: float | None = float(numerator)
+        value: float | None = numerator
     else:
         value = (numerator / denominator) if denominator else None
+    # numerator_episode_ids are bare id strings; the dashboard service layer
+    # (DashboardStore.explain_metric) enriches them into numerator_episodes objects.
     return {
         "key": metric_key,
         "supported": True,
