@@ -69,6 +69,29 @@
     return String(Math.round(v));
   }
 
+  // ---- audit-friendly labels for N/A cells & contract status ----------
+  const NULL_REASON_TEXT = {
+    not_reportable_validity: "Chưa đủ validity (<90%) để báo cáo",
+    no_cancel_cases: "Không có ca cancel để đo",
+    no_data: "Không có dữ liệu",
+  };
+  // Friendly Vietnamese for why a metric cell is N/A. Unknown codes pass through.
+  function nullReasonText(code) {
+    if (!code) return "Không có dữ liệu";
+    return NULL_REASON_TEXT[code] || String(code);
+  }
+
+  const CONTRACT_STATUS_TEXT = {
+    completed: "Hoàn tất — tất cả pass",
+    failed_evaluated: "Đã chấm — có episode chưa đạt",
+    partial: "Chưa đủ — thiếu episode / đang chạy",
+    invalid: "Không hợp lệ — thiếu metric bắt buộc",
+  };
+  // Friendly Vietnamese for the contract benchmark_status text. Unknown pass through.
+  function contractStatusText(value) {
+    return CONTRACT_STATUS_TEXT[value] || String(value === null || value === undefined ? "—" : value);
+  }
+
   // "numerator / denominator", nullish-safe. For audit explain modal.
   function formatRatio(numerator, denominator) {
     const n = Number.isFinite(numerator) ? numerator : 0;
@@ -383,6 +406,8 @@
     fmtInt,
     formatRatio,
     metricTone,
+    nullReasonText,
+    contractStatusText,
     fmtMetric,
     deriveReportability,
     validitySummary,

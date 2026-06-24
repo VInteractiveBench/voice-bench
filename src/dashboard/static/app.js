@@ -313,9 +313,14 @@
 
   function metricCard(m) {
     const isNull = m.value === null || m.value === undefined;
-    const valHtml = isNull
-      ? `<div class="metric-value null">${esc(m.null_reason || "N/A")}</div>`
-      : `<div class="metric-value">${esc(H.fmtMetric(m))}</div>`;
+    let valHtml;
+    if (isNull) {
+      valHtml = `<div class="metric-value null">N/A</div><div class="metric-reason">${esc(H.nullReasonText(m.null_reason))}</div>`;
+    } else if (m.key === "metric_contract.benchmark_status") {
+      valHtml = `<div class="metric-value metric-status-text">${esc(H.contractStatusText(m.value))}</div>`;
+    } else {
+      valHtml = `<div class="metric-value">${esc(H.fmtMetric(m))}</div>`;
+    }
     const denom = m.denominator ? `n=${esc(m.denominator)}` : "";
     return `<div class="metric ${metricColorClass(m)} metric-clickable" data-key="${esc(m.key)}" role="button" tabindex="0">
       <div class="metric-label">${esc(m.label || m.key)}</div>

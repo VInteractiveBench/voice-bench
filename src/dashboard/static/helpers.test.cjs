@@ -249,4 +249,22 @@ t("metricTone: dotted keys resolve by base", () => {
   assert.strictEqual(VB.metricTone("performance_yield_latency_pass_rate", 1.0, "rate"), "s-pass");
 });
 
+// ---- nullReasonText / contractStatusText (audit-friendly labels) ----
+t("nullReasonText maps known codes to Vietnamese", () => {
+  assert.strictEqual(VB.nullReasonText("not_reportable_validity"), "Chưa đủ validity (<90%) để báo cáo");
+  assert.strictEqual(VB.nullReasonText("no_cancel_cases"), "Không có ca cancel để đo");
+  assert.strictEqual(VB.nullReasonText("no_data"), "Không có dữ liệu");
+});
+t("nullReasonText falls back to a default for null/unknown", () => {
+  assert.strictEqual(VB.nullReasonText(null), "Không có dữ liệu");
+  assert.strictEqual(VB.nullReasonText("weird_code"), "weird_code");
+});
+t("contractStatusText maps statuses to Vietnamese", () => {
+  assert.strictEqual(VB.contractStatusText("failed_evaluated"), "Đã chấm — có episode chưa đạt");
+  assert.strictEqual(VB.contractStatusText("completed"), "Hoàn tất — tất cả pass");
+  assert.strictEqual(VB.contractStatusText("partial"), "Chưa đủ — thiếu episode / đang chạy");
+  assert.strictEqual(VB.contractStatusText("invalid"), "Không hợp lệ — thiếu metric bắt buộc");
+  assert.strictEqual(VB.contractStatusText("xyz"), "xyz");
+});
+
 console.log(`\n${passed} assertions passed.`);
