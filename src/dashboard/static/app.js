@@ -17,6 +17,7 @@
   const cache = { runs: null, summary: {}, episodes: {} };
   const explorerFilters = { validity: "", passed: "", domain: "", failure: "" };
   const explorerSort = { key: "episode_id", dir: 1 };
+  let showDiagnosticRuns = false;
 
   // ---- utils ------------------------------------------------------
   const esc = (s) =>
@@ -91,18 +92,46 @@
     return `<span class="chip ${tone}"><span class="dotpip"></span>${label}</span>`;
   }
 
+  function runOption(r, runId) {
+    return `<option value="${esc(r.run_id)}" ${r.run_id === runId ? "selected" : ""}>${esc(
+      r.run_id
+    )} · ${r.episode_count} ep</option>`;
+  }
+
   function runSelector(runs, runId) {
-    const opts = runs
-      .map(
-        (r) =>
-          `<option value="${esc(r.run_id)}" ${r.run_id === runId ? "selected" : ""}>${esc(
-            r.run_id
-          )} · ${r.episode_count} ep · ${esc(r.run_kind || "?")}</option>`
-      )
-      .join("");
+    const groups = H.groupRunsByKind(runs);
+    const benchmark = groups.find((g) => g.kind === "benchmark");
+    const diagnostics = groups.filter((g) => g.kind !== "benchmark");
+    const diagnosticCount = diagnostics.reduce((n, g) => n + g.runs.length, 0);
+
+    let body;
+    if (!showDiagnosticRuns) {
+      const benchRuns = benchmark ? benchmark.runs : [];
+      body = benchRuns.length
+        ? benchRuns.map((r) => runOption(r, runId)).join("")
+        : `<option value="" disabled selected>Chưa có benchmark run — bật "run chẩn đoán"</option>`;
+    } else {
+      body = groups
+        .map(
+          (g) =>
+            `<optgroup label="${esc(g.label)} (${g.runs.length})">` +
+            g.runs.map((r) => runOption(r, runId)).join("") +
+            `</optgroup>`
+        )
+        .join("");
+    }
+
+    const toggle = diagnosticCount
+      ? `<label class="run-toggle" style="display:flex;gap:6px;align-items:center;font-size:12px;opacity:.8;margin-top:6px">
+          <input type="checkbox" id="show-all-runs" ${showDiagnosticRuns ? "checked" : ""}/>
+          Hiện run chẩn đoán (${diagnosticCount})
+        </label>`
+      : "";
+
     return `<div class="field">
       <label>FDRC Run</label>
-      <select id="run-select">${opts}</select>
+      <select id="run-select">${body}</select>
+      ${toggle}
     </div>`;
   }
 
@@ -129,9 +158,18 @@
       return;
     }
 
+    // NOTE: defaultRunId relies on /api/runs being sorted by updated_at desc
+    // (backend list_runs does this). "First benchmark" = newest real score.
     const runId = route.runId && runs.some((r) => r.run_id === route.runId)
       ? route.runId
-      : runs[0].run_id;
+      : H.defaultRunId(runs);
+
+    // If the active run isn't a benchmark run (e.g. opened via URL), reveal
+    // diagnostics so it shows up in the dropdown instead of vanishing.
+    const activeRun = runs.find((r) => r.run_id === runId);
+    if (activeRun && H.effectiveRunKind(activeRun) !== "benchmark") {
+      showDiagnosticRuns = true;
+    }
 
     view.innerHTML = `<div class="controls">${runSelector(runs, runId)}
       <div class="spacer"></div>
@@ -139,9 +177,21 @@
     </div>
     <div id="ov-body"><div class="skeleton"></div></div>`;
 
-    document.getElementById("run-select").addEventListener("change", (e) =>
-      nav({ tab: "fdrc", view: "overview", runId: e.target.value })
-    );
+    function wireRunControls() {
+      document.getElementById("run-select").addEventListener("change", (e) =>
+        nav({ tab: "fdrc", view: "overview", runId: e.target.value })
+      );
+      const showAllEl = document.getElementById("show-all-runs");
+      if (showAllEl) {
+        showAllEl.addEventListener("change", (e) => {
+          showDiagnosticRuns = e.target.checked;
+          const field = document.querySelector(".controls .field");
+          field.outerHTML = runSelector(runs, runId);
+          wireRunControls();
+        });
+      }
+    }
+    wireRunControls();
     document.getElementById("go-episodes").addEventListener("click", () =>
       nav({ tab: "fdrc", view: "episodes", runId })
     );
