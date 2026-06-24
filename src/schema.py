@@ -10,14 +10,10 @@ from src.evaluator.voice_event_evaluator import event_time as _event_time
 
 ValidationIssue = dict[str, Any]
 
-RETENTION_TRACK = "text_to_voice_retention"
 FDRC_TRACK = "full_duplex_repair_to_commit"
 POLICY_TRACK = "voice_policy_command_gating"
 
 MODE_TO_AUDIO_CONDITION: dict[str, str] = {
-    "text_baseline": "none",
-    "clean_voice": "clean",
-    "realistic_cabin_voice": "cabin_noise",
     "full_duplex_repair_to_commit": "interaction_stress",
     "voice_policy_gating": "clean",
 }
@@ -201,10 +197,7 @@ def validate_overlay(overlay: Any, tasks: dict[str, dict], path: str = "overlay"
         issues.append(_issue(f"{path}.base_task_id", "unknown_task", value=base_task_id))
     elif overlay.get("domain") != task.get("domain"):
         issues.append(_issue(f"{path}.domain", "domain_mismatch", value=overlay.get("domain")))
-    if track == RETENTION_TRACK:
-        if not isinstance(overlay.get("spoken_utterance"), str):
-            issues.append(_issue(f"{path}.spoken_utterance", "required_string"))
-    elif track == FDRC_TRACK:
+    if track == FDRC_TRACK:
         issues.extend(_validate_fields(overlay, FDRC_OVERLAY_FIELDS, path))
         timeline = overlay.get("voice_timeline", [])
         issues.extend(validate_voice_events(timeline, f"{path}.voice_timeline"))

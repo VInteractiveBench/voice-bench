@@ -1282,7 +1282,7 @@ class DashboardStore:
                         "voice_timeline": overlay.get("voice_timeline", []),
                         "voice_assertions": overlay.get("voice_assertions", {}),
                     },
-                    "retention": {
+                    "slot_eval": {
                         "captured_slots": episode.get("captured_slots", {}),
                         "critical_slot_result": episode.get("critical_slot_result"),
                         "tool_exact_match": episode.get("scores", {}).get("tool_exact_match"),

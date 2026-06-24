@@ -411,12 +411,6 @@ def reliability_summary(episodes: list[dict]) -> dict:
         + kinds.get("sample", 0)
         + kinds.get("internal", 0),
         "unknown_count": kinds.get("unknown", 0),
-        "incomplete_retention_pairs": sum(
-            1
-            for episode in episodes
-            if episode.get("benchmark_track") == "text_to_voice_retention"
-            and episode.get("retention_pair_complete") is False
-        ),
         "invalid_fdrc_timing_episodes": sum(
             1
             for episode in episodes
@@ -428,7 +422,6 @@ def reliability_summary(episodes: list[dict]) -> dict:
 
 
 def generate_report(
-    retention_metrics: dict,
     fdrc_metrics: dict,
     episodes: list[dict],
     output: str,
@@ -460,12 +453,6 @@ def generate_report(
         "| Field | Value |",
         "|---|---:|",
         *[f"| {key} | {value} |" for key, value in reliability.items()],
-        "",
-        "## Text-to-Voice Capability Retention",
-        "",
-        "| Metric | Value |",
-        "|---|---:|",
-        *[f"| {key} | {value} |" for key, value in retention_metrics.items()],
         "",
         "## Full-Duplex Repair-to-Commit",
         "",
