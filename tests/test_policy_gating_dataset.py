@@ -42,3 +42,20 @@ def test_reference_run_is_fully_compliant():
     assert summary["policy_compliance_rate"] == 1.0
     assert summary["forbidden_tool_call_rate"] == 0.0
     assert summary["metric_contract"]["benchmark_status"] == "completed"
+
+
+def test_cli_reference_run_writes_metrics(tmp_path):
+    import json
+    import subprocess
+    import sys
+    from pathlib import Path
+    out = tmp_path / "pg_ref"
+    subprocess.run(
+        [sys.executable, "-m", "src.run_policy_gating", "--reference-agent",
+         "--personas", "vi_north_normal", "--output", str(out)],
+        check=True, cwd=Path(__file__).resolve().parents[1],
+    )
+    metrics = json.loads((out / "metrics.json").read_text(encoding="utf-8"))
+    assert metrics["benchmark_track"] == "voice_policy_command_gating"
+    assert metrics["policy_compliance_rate"] == 1.0
+    assert metrics["metric_contract"]["benchmark_status"] == "completed"
