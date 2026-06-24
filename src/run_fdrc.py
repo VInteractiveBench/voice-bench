@@ -13,6 +13,7 @@ from src.fdrc_run_inspector import (
     evaluator_metrics,
 )
 from src.io import load_base_tasks, load_overlays
+from src.orchestrator.full_duplex_orchestrator import provider_for_agent
 from src.runner import (
     annotate_episodes,
     evaluate_episodes,
@@ -53,6 +54,12 @@ def main() -> None:
     parser.add_argument("--personas", default="vi_north_normal,vi_central_normal,vi_south_normal")
     parser.add_argument("--audio-condition", choices=["interaction_stress"], default="interaction_stress")
     parser.add_argument("--tick-ms", type=int, choices=[200], default=200)
+    parser.add_argument(
+        "--fdrc-yield-mode",
+        choices=["native_yield", "client_cancel_yield"],
+        default="native_yield",
+        help="native_yield measures provider/model behavior; client_cancel_yield measures product-stack cancellation.",
+    )
     parser.add_argument("--episode-logs")
     parser.add_argument("--reference-agent", action="store_true")
     parser.add_argument("--agent", choices=["openai_realtime"], default=None)
@@ -81,6 +88,7 @@ def main() -> None:
             modes=["full_duplex_repair_to_commit"],
             personas=args.personas.split(","),
             tick_ms=args.tick_ms,
+            fdrc_yield_mode=args.fdrc_yield_mode,
         )
     else:
         episodes = load_or_build_episodes(
@@ -103,7 +111,7 @@ def main() -> None:
         run_kind=run_kind,
         source_episode_log=args.episode_logs,
         agent="openai_as_vivi" if args.agent else None,
-        provider="openai" if args.agent else None,
+        provider=provider_for_agent(args.agent) if args.agent else None,
         model=args.model if args.agent else None,
         adapter=args.agent or ("reference_agent" if args.reference_agent else None),
     )
