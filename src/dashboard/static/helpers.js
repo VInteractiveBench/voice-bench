@@ -69,6 +69,13 @@
     return String(Math.round(v));
   }
 
+  // "numerator / denominator", nullish-safe. For audit explain modal.
+  function formatRatio(numerator, denominator) {
+    const n = Number.isFinite(numerator) ? numerator : 0;
+    const d = Number.isFinite(denominator) ? denominator : 0;
+    return n + " / " + d;
+  }
+
   // Format a catalog metric {value, unit} into display text. Null-safe.
   function fmtMetric(metric) {
     if (!metric) return "—";
@@ -336,6 +343,7 @@
     fmtPct,
     fmtMs,
     fmtInt,
+    formatRatio,
     fmtMetric,
     deriveReportability,
     validitySummary,

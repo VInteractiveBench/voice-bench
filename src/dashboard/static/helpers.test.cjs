@@ -215,4 +215,13 @@ t("groupRunsByKind handles empty input", () => {
   assert.deepStrictEqual(VB.groupRunsByKind(null), []);
 });
 
+// ---- formatRatio ----
+t("formatRatio shows numerator / denominator", () => {
+  assert.strictEqual(VB.formatRatio(1, 8), "1 / 8");
+  assert.strictEqual(VB.formatRatio(0, 0), "0 / 0");
+});
+t("formatRatio coerces nullish to 0", () => {
+  assert.strictEqual(VB.formatRatio(null, undefined), "0 / 0");
+});
+
 console.log(`\n${passed} assertions passed.`);
