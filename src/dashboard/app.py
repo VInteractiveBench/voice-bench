@@ -37,6 +37,10 @@ def create_app(results_dir: str = "results") -> FastAPI:
     def list_runs() -> list[dict[str, Any]]:
         return store.list_runs()
 
+    @app.get("/api/leaderboard")
+    def leaderboard(track: str = "full_duplex_repair_to_commit") -> list[dict[str, Any]]:
+        return store.leaderboard(track=track)
+
     @app.get("/api/run-presets")
     def run_presets() -> list[dict[str, Any]]:
         return store.run_presets()
@@ -78,6 +82,7 @@ def create_app(results_dir: str = "results") -> FastAPI:
         domain: str | None = None,
         mode: str | None = None,
         failure: str | None = None,
+        validity: str | None = None,
         passed: bool | None = Query(default=None),
     ) -> dict[str, Any]:
         try:
@@ -87,6 +92,7 @@ def create_app(results_dir: str = "results") -> FastAPI:
                 domain=domain,
                 mode=mode,
                 failure=failure,
+                validity=validity,
                 passed=passed,
             )
         except RunNotFound as exc:

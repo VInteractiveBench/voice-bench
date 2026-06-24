@@ -1,206 +1,45 @@
 <!doctype html>
 <html lang="vi">
   <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Dashboard Benchmark Giọng nói Vivi</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260611-failure-counts">
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Voice·Bench — Forensic Console</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/styles.css?v=20260623-light" />
   </head>
   <body>
-    <aside class="sidebar">
+    <div class="grain" aria-hidden="true"></div>
+
+    <header class="topbar">
       <div class="brand">
-        <h1>Vivi Voice Bench</h1>
+        <span class="brand-mark">◣◢</span>
+        <span class="brand-name">VOICE<span class="dot">·</span>BENCH</span>
+        <span class="brand-sub">forensic console</span>
       </div>
+      <nav class="tabs" id="tabs">
+        <button class="tab" data-tab="fdrc" aria-current="true">
+          <span class="tab-idx">01</span> Full-Duplex
+        </button>
+        <button class="tab" data-tab="lab">
+          <span class="tab-idx">02</span> Leaderboard
+        </button>
+      </nav>
+    </header>
 
-      <section class="nav-group">
-        <h2>Điều hướng</h2>
-        <label>
-          Benchmark
-          <select id="benchmarkSelect">
-            <option value="text_to_voice_retention">Text-to-Voice Retention</option>
-            <option value="full_duplex_repair_to_commit">Full-Duplex Repair-to-Commit</option>
-          </select>
-        </label>
+    <main id="view" class="view"><!-- rendered by app.js --></main>
 
-        <label>
-          Lần chạy
-          <select id="runSelect"></select>
-        </label>
-      </section>
+    <footer class="statusbar" id="statusbar">
+      <span class="sb-item" id="sb-route">—</span>
+      <span class="sb-sep">/</span>
+      <span class="sb-item" id="sb-meta">ready</span>
+    </footer>
 
-      <section class="nav-group">
-        <h2>Bộ lọc</h2>
-        <label>
-          Domain
-          <select id="domainFilter"><option value="">Tất cả</option></select>
-        </label>
-
-        <label>
-          Mode
-          <select id="modeFilter"><option value="">Tất cả</option></select>
-        </label>
-
-        <label>
-          Loại lỗi
-          <select id="failureFilter"><option value="">Tất cả</option></select>
-        </label>
-
-        <label>
-          Kết quả
-          <select id="passFilter">
-            <option value="">Tất cả</option>
-            <option value="true">Pass</option>
-            <option value="false">Fail</option>
-          </select>
-        </label>
-        <details class="advanced-run">
-          <summary>Bộ lọc nâng cao</summary>
-          <label>
-            Vùng giọng (accent_region)
-            <select id="accentFilter"><option value="">Tất cả</option></select>
-          </label>
-          <label>
-            Tốc độ nói (speech_speed)
-            <select id="speedFilter"><option value="">Tất cả</option></select>
-          </label>
-          <label>
-            Điều kiện âm thanh (audio_condition_id)
-            <select id="audioFilter"><option value="">Tất cả</option></select>
-          </label>
-        </details>
-      </section>
-    </aside>
-
-    <main class="main">
-      <section class="topbar">
-        <div>
-          <h2 id="runTitle">Chưa chọn run</h2>
-          <p id="benchmarkPurpose" class="purpose"></p>
-          <p id="runMeta"></p>
-        </div>
-        <div class="header-actions">
-          <button id="openRunModalButton">Chạy benchmark mới</button>
-          <button id="refreshButton" title="Quét lại kết quả">Làm mới</button>
-          <div id="statusPill" class="status">Sẵn sàng</div>
-        </div>
-      </section>
-
-      <section id="provenanceBanner" class="provenance-banner hidden"></section>
-
-      <section id="primaryKpiGrid" class="kpi-grid primary-kpis"></section>
-      <details class="secondary-kpis">
-        <summary>Chỉ số phụ</summary>
-        <section id="secondaryKpiGrid" class="kpi-grid"></section>
-      </details>
-
-      <section class="grid two">
-        <div class="panel">
-          <div class="panel-head">
-            <h3>Phân rã tỷ lệ pass</h3>
-            <select id="breakdownSelect" class="compact-select">
-              <option value="domain">Domain</option>
-              <option value="mode">Chế độ đầu vào</option>
-              <option value="accent_region">Giọng vùng miền</option>
-              <option value="speech_speed">Tốc độ nói</option>
-              <option value="audio_condition">Điều kiện âm thanh</option>
-            </select>
-          </div>
-          <div id="breakdownChart" class="bars"></div>
-        </div>
-        <div class="panel">
-          <div class="panel-head">
-            <h3>Các lỗi ghi nhận</h3>
-          </div>
-          <div id="failureChart" class="bars"></div>
-        </div>
-      </section>
-
-      <section class="grid two">
-        <div class="panel">
-          <div class="panel-head">
-            <h3 id="focusPanelTitle">Chẩn đoán chính</h3>
-          </div>
-          <div id="focusPanel" class="focus-panel"></div>
-        </div>
-        <div class="panel">
-          <div class="panel-head">
-            <h3>Tóm tắt độ trễ</h3>
-          </div>
-          <div id="latencyChart" class="latency"></div>
-        </div>
-      </section>
-
-      <section class="panel">
-        <div class="panel-head">
-          <h3>Điều tra episode</h3>
-          <div class="quick-filters">
-            <button type="button" data-filter="failed">Chỉ fail</button>
-            <button type="button" data-filter="policy">Vi phạm policy</button>
-            <button type="button" data-filter="slot">Sai critical slot</button>
-            <button type="button" data-filter="latency">Độ trễ cao</button>
-            <button type="button" data-filter="tool">Sai tool</button>
-            <button type="button" data-filter="clear">Xóa lọc nhanh</button>
-          </div>
-          <span id="episodeCount"></span>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead id="episodeHead"></thead>
-            <tbody id="episodeRows"></tbody>
-          </table>
-        </div>
-      </section>
-
-      <section class="panel detail">
-        <div class="panel-head">
-          <h3 id="detailTitle">Chi tiết episode</h3>
-        </div>
-        <nav id="detailTabs" class="tabs hidden">
-          <button data-tab="summary">Tóm tắt</button>
-          <button data-tab="conversation">Hội thoại</button>
-          <button data-tab="timeline">Dòng thời gian</button>
-          <button data-tab="tool_state">Tool & trạng thái</button>
-          <button data-tab="evidence">Bằng chứng</button>
-          <button data-tab="raw">JSON thô</button>
-        </nav>
-        <div id="detailBody" class="detail-body muted">Chọn một episode để xem transcript, tool calls, state và timeline.</div>
-      </section>
-    </main>
-
-    <div id="runModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="runModalTitle">
-      <div class="modal-panel">
-        <div class="modal-head">
-          <h2 id="runModalTitle">Chạy benchmark mới</h2>
-          <button id="closeRunModalButton" type="button">Đóng</button>
-        </div>
-        <p id="runScopeText">Mặc định chạy theo benchmark đang chọn. Reference-agent không gọi provider; OpenAI preset sẽ dùng credential hiện có.</p>
-        <div id="runEstimate" class="run-estimate"></div>
-        <label>
-          Preset
-          <select id="presetSelect"></select>
-        </label>
-        <div class="run-warning">
-          Kiểm tra kỹ preset trước khi chạy. Preset OpenAI có thể phát sinh chi phí provider/model.
-        </div>
-        <label>
-          Domain chạy
-          <input id="runDomains" value="automotive,navigation,media_phone">
-        </label>
-        <label>
-          Persona
-          <input id="runPersonas" value="vi_north_normal,vi_central_normal,vi_south_normal">
-        </label>
-        <label>
-          Model
-          <input id="runModel" placeholder="để trống để dùng mặc định">
-        </label>
-        <div class="modal-actions">
-          <button id="runButton">Chạy benchmark</button>
-        </div>
-        <div id="jobStatus" class="job-status"></div>
-      </div>
-    </div>
-
-    <script src="/static/app.js?v=20260611-failure-counts"></script>
+    <script src="/static/helpers.js?v=20260623-console"></script>
+    <script src="/static/app.js?v=20260623-console"></script>
   </body>
 </html>

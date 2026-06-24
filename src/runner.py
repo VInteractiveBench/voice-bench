@@ -108,6 +108,75 @@ def dominant_track(episodes: list[dict]) -> str | None:
     return tracks.most_common(1)[0][0] if tracks else None
 
 
+def _stable_hash(value: object) -> str:
+    payload = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _unique_values(episodes: list[dict], key: str) -> list[str]:
+    return sorted(
+        {
+            str(episode.get(key))
+            for episode in episodes
+            if episode.get(key) not in (None, "")
+        }
+    )
+
+
+def _episode_persona(episode: dict) -> str | None:
+    if episode.get("persona"):
+        return str(episode["persona"])
+    accent = episode.get("accent_region")
+    speed = episode.get("speech_speed")
+    if accent and speed:
+        return f"vi_{accent}_{speed}"
+    return None
+
+
+def build_run_metadata(episodes: list[dict]) -> dict:
+    digest = episode_set_hash(episodes)
+    run_ids = _unique_values(episodes, "run_id")
+    run_kinds = _unique_values(episodes, "run_kind")
+    overlay_ids = _unique_values(episodes, "speech_overlay_id")
+    personas = sorted(
+        {
+            persona
+            for persona in (_episode_persona(episode) for episode in episodes)
+            if persona
+        }
+    )
+    return {
+        "run_id": run_ids[0] if len(run_ids) == 1 else None,
+        "run_kind": run_kinds[0] if len(run_kinds) == 1 else None,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "benchmark": dominant_track(episodes),
+        "benchmark_track": dominant_track(episodes),
+        "providers": _unique_values(episodes, "provider"),
+        "models": _unique_values(episodes, "model"),
+        "adapters": _unique_values(episodes, "adapter"),
+        "fdrc_yield_modes": _unique_values(episodes, "fdrc_yield_mode"),
+        "tick_ms": 200,
+        "episode_set_hash": digest,
+        "overlay_hash": _stable_hash(overlay_ids),
+        "persona_hash": _stable_hash(personas),
+        "domains": _unique_values(episodes, "domain"),
+        "personas": personas,
+        "audio_conditions": _unique_values(episodes, "audio_condition_id"),
+        "episode_count": len(episodes),
+        "provider_episode_count": sum(
+            1 for episode in episodes if episode.get("run_kind") == "provider"
+        ),
+        "reference_episode_count": sum(
+            1 for episode in episodes if episode.get("run_kind") in REFERENCE_KINDS
+        ),
+    }
+
+
 def annotate_episodes(
     episodes: list[dict],
     *,
@@ -134,6 +203,8 @@ def annotate_episodes(
         row["adapter"] = adapter if adapter is not None else row.get("adapter")
         row["created_at"] = created
         row["source_episode_log"] = source_episode_log
+        if not row.get("persona"):
+            row["persona"] = _episode_persona(row)
         stamped.append(row)
     digest = episode_set_hash(stamped)
     for row in stamped:
@@ -170,6 +241,7 @@ async def run_agent_episodes_async(
     modes: list[str],
     personas: list[str],
     tick_ms: int = 200,
+    fdrc_yield_mode: str = "native_yield",
 ) -> list[dict]:
     episodes = []
     for overlay in overlays:
@@ -185,6 +257,7 @@ async def run_agent_episodes_async(
                         mode=mode,
                         persona=persona,
                         tick_ms=tick_ms,
+                        fdrc_yield_mode=fdrc_yield_mode,
                     )
                 )
     return episodes
@@ -257,35 +330,29 @@ def merge_existing_episodes(output: str, episodes: list[dict], *, enabled: bool 
 
 def metrics_with_metadata(episodes: list[dict], metrics: dict) -> dict:
     digest = episode_set_hash(episodes)
-    run_ids = sorted({str(episode.get("run_id")) for episode in episodes if episode.get("run_id")})
-    run_kinds = sorted({str(episode.get("run_kind")) for episode in episodes if episode.get("run_kind")})
     tracks = {episode.get("benchmark_track") for episode in episodes if episode.get("benchmark_track")}
+    run_metadata = build_run_metadata(episodes)
+    run_metadata = {
+        **run_metadata,
+        "is_reference": any(bool(episode.get("is_reference")) for episode in episodes),
+        "mixed_track": len(tracks) > 1,
+    }
     return {
         **metrics,
         "benchmark_track": dominant_track(episodes),
         "episode_set_hash": digest,
-        "run_metadata": {
-            "run_id": run_ids[0] if len(run_ids) == 1 else None,
-            "run_kind": run_kinds[0] if len(run_kinds) == 1 else None,
-            "is_reference": any(bool(episode.get("is_reference")) for episode in episodes),
-            "provider_episode_count": sum(
-                1 for episode in episodes if episode.get("run_kind") == "provider"
-            ),
-            "reference_episode_count": sum(
-                1 for episode in episodes if episode.get("run_kind") in REFERENCE_KINDS
-            ),
-            "mixed_track": len(tracks) > 1,
-            "episode_count": len(episodes),
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        },
+        "run_metadata": run_metadata,
+        "metadata_hash": _stable_hash(run_metadata),
     }
 
 
 def save_results(output: str, episodes: list[dict], metrics: dict) -> None:
     target = Path(output)
     target.mkdir(parents=True, exist_ok=True)
+    enriched_metrics = metrics_with_metadata(episodes, metrics)
     write_jsonl(target / "episodes.jsonl", episodes)
-    write_json(target / "metrics.json", metrics_with_metadata(episodes, metrics))
+    write_json(target / "metrics.json", enriched_metrics)
+    write_json(target / "run_metadata.json", enriched_metrics["run_metadata"])
 
 
 def _episode_kind(episode: dict) -> str:

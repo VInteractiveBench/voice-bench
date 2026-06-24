@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Literal
 
 from src.adapters import (
+    GeminiLiveViviAdapter,
     OpenAIRealtimeViviAdapter,
     OpenAITextViviAdapter,
     ViviAgentAdapter,
@@ -17,7 +19,17 @@ from src.tools.vivi_tool_registry import get_domain_tools
 from src.tick_scheduler import schedule_timeline
 
 
-AgentName = Literal["openai_text", "openai_realtime"]
+AgentName = Literal["openai_text", "openai_realtime", "gemini_live"]
+
+AGENT_TO_PROVIDER: dict[str, str] = {
+    "openai_text": "openai",
+    "openai_realtime": "openai",
+    "gemini_live": "google",
+}
+
+
+def provider_for_agent(agent: str | None) -> str | None:
+    return AGENT_TO_PROVIDER.get(agent) if agent else None
 
 
 _AUDIO_CACHE: AudioCache | None = None
@@ -40,6 +52,8 @@ def build_adapter(agent: AgentName, model: str) -> ViviAgentAdapter:
         return OpenAITextViviAdapter(model=model)
     if agent == "openai_realtime":
         return OpenAIRealtimeViviAdapter(model=model)
+    if agent == "gemini_live":
+        return GeminiLiveViviAdapter(model=model)
     raise ValueError(f"Unsupported agent: {agent}")
 
 
@@ -52,6 +66,7 @@ async def run_agent_episode(
     mode: str,
     persona: str,
     tick_ms: int = 200,
+    fdrc_yield_mode: str = "native_yield",
 ) -> dict:
     adapter = build_adapter(agent, model)
     tool_schemas = get_openai_tool_schemas(task["domain"])
@@ -70,10 +85,11 @@ async def run_agent_episode(
 
     await adapter.start_session(system_prompt=system_prompt, tools=tool_schemas)
     try:
-        if agent == "openai_realtime":
+        if agent in {"openai_realtime", "gemini_live"}:
             await _run_audio_episode(
                 adapter, task, overlay, mode, persona, server,
                 normalized_events, assistant_transcript, user_transcript, failures,
+                fdrc_yield_mode=fdrc_yield_mode,
             )
         elif overlay["benchmark_track"] == "full_duplex_repair_to_commit":
             await _send_timeline_text(adapter, overlay, normalized_events, user_transcript, tick_ms)
@@ -88,10 +104,11 @@ async def run_agent_episode(
         await adapter.close()
 
     accent, speed = _persona_parts(persona)
+    normalized_events = _normalize_repair_transcript_events(normalized_events)
     return {
         "episode_id": f"{overlay['speech_overlay_id']}:{mode}:{persona}:{agent}:{model}",
         "agent": "openai_as_vivi",
-        "provider": "openai",
+        "provider": provider_for_agent(agent),
         "model": model,
         "adapter": agent,
         "benchmark_track": overlay["benchmark_track"],
@@ -102,13 +119,16 @@ async def run_agent_episode(
         "accent_region": accent,
         "speech_speed": speed,
         "audio_condition_id": _audio_condition_for_mode(mode),
+        "fdrc_yield_mode": fdrc_yield_mode if overlay["benchmark_track"] == "full_duplex_repair_to_commit" else None,
         "initial_state": server.initial_state,
         "final_state": server.final_state(),
         "user_transcript": user_transcript,
         "assistant_transcript": assistant_transcript,
         "captured_slots": _infer_captured_slots(overlay, server.tool_call_log),
         "normalized_events": normalized_events,
-        "voice_events": _voice_events_from_normalized(normalized_events, overlay),
+        "voice_events": _voice_events_from_normalized(
+            normalized_events, overlay, server.final_state()
+        ),
         "tool_calls": server.tool_call_log,
         "tool_results": server.tool_results,
         "validation_errors": [err for result in server.tool_results for err in result.get("errors", [])],
@@ -149,19 +169,22 @@ async def _stream_audio(
     samples,
     normalized_events: list[dict],
     *,
-    start_ms: int,
+    episode_started: float,
     overlap: bool,
 ) -> None:
-    """Stream float samples as 100 ms PCM16 chunks and log one send marker."""
+    """Stream float samples as 100 ms PCM16 chunks on wall-clock time."""
     pcm = audio_io.float_to_pcm16(samples)
     frame_bytes = int(0.1 * audio_io.TARGET_SR) * 2  # 100 ms of mono PCM16
-    t = start_ms
+    marker_logged = False
     for offset in range(0, len(pcm), frame_bytes):
-        await adapter.send_audio_chunk(pcm[offset:offset + frame_bytes], t)
-        t += 100
-    normalized_events.append(
-        {"type": "user_audio_chunk_sent", "t_ms": start_ms, "overlap": overlap}
-    )
+        t_ms = int((time.perf_counter() - episode_started) * 1000)
+        if not marker_logged:
+            normalized_events.append(
+                {"type": "user_audio_chunk_sent", "t_ms": t_ms, "overlap": overlap}
+            )
+            marker_logged = True
+        await adapter.send_audio_chunk(pcm[offset:offset + frame_bytes], t_ms)
+        await asyncio.sleep(0.1)
 
 
 def _timeline_interrupt_ms(overlay: dict, default: int = 2000) -> int:
@@ -182,6 +205,7 @@ async def _run_audio_episode(
     assistant_transcript: list[str],
     user_transcript: list[str],
     failures: list[str],
+    fdrc_yield_mode: str = "native_yield",
 ) -> None:
     """Drive a voice/FDRC episode with real synthesized audio over the realtime session."""
     cache = _get_audio_cache()
@@ -195,13 +219,35 @@ async def _run_audio_episode(
         interrupt_ms = _timeline_interrupt_ms(overlay)
         user_transcript.extend([initial_text, repair_text])
         # Drain concurrently so the repair audio can overlap the assistant's response.
+        episode_started = time.perf_counter()
         drain = asyncio.create_task(
             _drain_adapter_events(adapter, server, normalized_events, assistant_transcript, failures)
         )
-        await _stream_audio(adapter, initial, normalized_events, start_ms=0, overlap=False)
+        await _stream_audio(
+            adapter,
+            initial,
+            normalized_events,
+            episode_started=episode_started,
+            overlap=False,
+        )
         await adapter.commit_audio_turn()
-        await asyncio.sleep(max(0.0, interrupt_ms / 1000))
-        await _stream_audio(adapter, repair, normalized_events, start_ms=interrupt_ms, overlap=True)
+        elapsed = time.perf_counter() - episode_started
+        await asyncio.sleep(max(0.0, interrupt_ms / 1000 - elapsed))
+        if fdrc_yield_mode == "client_cancel_yield":
+            normalized_events.append(
+                {
+                    "type": "client_cancel_response",
+                    "t_ms": int((time.perf_counter() - episode_started) * 1000),
+                }
+            )
+            await adapter.cancel_response()
+        await _stream_audio(
+            adapter,
+            repair,
+            normalized_events,
+            episode_started=episode_started,
+            overlap=True,
+        )
         await adapter.commit_audio_turn()
         await drain
         return
@@ -210,7 +256,13 @@ async def _run_audio_episode(
     text = overlay.get("spoken_utterance") or task.get("user_goal", "")
     samples = cache.get_or_build(text, accent, speed, condition)
     user_transcript.append(text)
-    await _stream_audio(adapter, samples, normalized_events, start_ms=0, overlap=False)
+    await _stream_audio(
+        adapter,
+        samples,
+        normalized_events,
+        episode_started=time.perf_counter(),
+        overlap=False,
+    )
     await adapter.commit_audio_turn()
     await _drain_adapter_events(adapter, server, normalized_events, assistant_transcript, failures)
 
@@ -268,7 +320,9 @@ def _infer_captured_slots(overlay: dict, tool_calls: list[dict]) -> dict:
     return {key: value for key, value in expected.items() if str(value) in text}
 
 
-def _voice_events_from_normalized(events: list[dict], overlay: dict) -> list[dict]:
+def _voice_events_from_normalized(
+    events: list[dict], overlay: dict, final_state: dict | None = None
+) -> list[dict]:
     voice_events = [
         {**event, "source": "expected"} for event in overlay.get("voice_timeline", [])
     ]
@@ -284,6 +338,29 @@ def _voice_events_from_normalized(events: list[dict], overlay: dict) -> list[dic
         elif event_type == "user_audio_chunk_sent" and event.get("overlap"):
             voice_events.append({"event": "user_interrupt_start", "t_ms": t_ms, "source": "observed"})
             voice_events.append({"event": "repair_audio_start", "t_ms": t_ms, "source": "observed"})
+        elif event_type == "tool_call":
+            voice_events.append(
+                {
+                    "event": "tool_call",
+                    "t_ms": t_ms,
+                    "tool": event.get("tool"),
+                    "args": event.get("args"),
+                    "source": "observed",
+                }
+            )
+        elif event_type == "tool_result":
+            voice_events.append(
+                {
+                    "event": "tool_result",
+                    "t_ms": t_ms,
+                    "tool": event.get("tool"),
+                    "source": "observed",
+                }
+            )
+        elif event_type == "repair_transcript_done":
+            voice_events.append(
+                {"event": "repair_transcript_done", "t_ms": t_ms, "source": "observed"}
+            )
     interrupt = next(
         (
             e["t_ms"]
@@ -292,14 +369,33 @@ def _voice_events_from_normalized(events: list[dict], overlay: dict) -> list[dic
         ),
         None,
     )
-    repair_transcript = _first_event_time_after(events, "user_transcript_done", interrupt)
-    if repair_transcript is not None:
+    repair_transcript = _first_event_time_after(events, "repair_transcript_done", interrupt)
+    if repair_transcript is None:
+        repair_transcript = _first_event_time_after(events, "user_transcript_done", interrupt)
+    if repair_transcript is not None and not any(
+        event.get("event") == "repair_transcript_done"
+        and event.get("source") == "observed"
+        for event in voice_events
+    ):
         voice_events.append(
             {"event": "repair_transcript_done", "t_ms": repair_transcript, "source": "observed"}
         )
     speech_stop = _first_event_time_after(events, "assistant_speech_stop", interrupt)
     if interrupt is not None and speech_stop is not None:
         voice_events.append({"event": "assistant_yielded", "t_ms": speech_stop, "source": "observed"})
+    last_t_ms = max(
+        [event.get("t_ms", 0) for event in voice_events if isinstance(event.get("t_ms"), int)]
+        or [0]
+    )
+    if final_state is not None:
+        voice_events.append(
+            {
+                "event": "final_state",
+                "t_ms": last_t_ms + 1,
+                "state": final_state,
+                "source": "observed",
+            }
+        )
     return sorted(voice_events, key=lambda event: event.get("t_ms", 0))
 
 
@@ -319,6 +415,43 @@ def _first_event_time_after(
         ),
         None,
     )
+
+
+def _normalize_repair_transcript_events(events: list[dict]) -> list[dict]:
+    interrupt = next(
+        (
+            event.get("t_ms")
+            for event in events
+            if event.get("type") == "user_audio_chunk_sent" and event.get("overlap")
+        ),
+        None,
+    )
+    if interrupt is None:
+        return events
+    normalized = list(events)
+    has_repair_done = any(
+        event.get("type") == "repair_transcript_done"
+        and isinstance(event.get("t_ms"), int)
+        and event.get("t_ms") >= interrupt
+        for event in normalized
+    )
+    if has_repair_done:
+        return normalized
+    for event in events:
+        if (
+            event.get("type") == "user_transcript_done"
+            and isinstance(event.get("t_ms"), int)
+            and event.get("t_ms") >= interrupt
+        ):
+            normalized.append(
+                {
+                    **event,
+                    "type": "repair_transcript_done",
+                    "source_type": "user_transcript_done",
+                }
+            )
+            break
+    return sorted(normalized, key=lambda event: event.get("t_ms", 0))
 
 
 def _yield_latency(events: list[dict]) -> int | None:

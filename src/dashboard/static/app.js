@@ -1,793 +1,731 @@
-const TRACK_RETENTION = "text_to_voice_retention";
-const TRACK_FDRC = "full_duplex_repair_to_commit";
+/* ============================================================
+   Voice·Bench — Forensic Console (app)
+   Vanilla JS. Reads the unchanged FastAPI /api routes.
+   Two tabs: 01 Full-Duplex (FDRC), 02 Leaderboard.
+   ============================================================ */
+(() => {
+  "use strict";
+  const H = window.VB;
+  const FDRC = H.FDRC_TRACK;
 
-const benchmarkText = {
-  [TRACK_RETENTION]:
-    "Mục đích: đo mức Vivi giữ được năng lực từ text baseline sang voice, đặc biệt critical slots, tool calls, arguments và final state.",
-  [TRACK_FDRC]:
-    "Mục đích: đo khả năng nhường lời khi user chen ngang, tiếp nhận lệnh sửa/hủy, chặn ý định cũ và chỉ commit ý định cuối cùng.",
-};
+  const view = document.getElementById("view");
+  const tabsEl = document.getElementById("tabs");
+  const sbRoute = document.getElementById("sb-route");
+  const sbMeta = document.getElementById("sb-meta");
 
-const metricInfo = {
-  pass_at_1: ["Pass tổng", "Tỷ lệ episode pass toàn bộ tiêu chí chấm điểm."],
-  text_pass_at_1: ["Pass text baseline", "Tỷ lệ pass của các episode text baseline."],
-  clean_voice_pass_at_1: ["Pass voice sạch", "Tỷ lệ pass khi input là giọng nói sạch."],
-  cabin_voice_pass_at_1: ["Pass voice cabin", "Tỷ lệ pass khi input là giọng nói có nhiễu cabin."],
-  voice_capability_retention: ["Giữ năng lực voice", "Cabin voice pass chia cho text baseline pass."],
-  critical_slot_accuracy: ["Đúng critical slot", "Tỷ lệ slot quan trọng được giữ đúng."],
-  tool_exact_match: ["Khớp tool", "Tỷ lệ episode gọi đúng chuỗi tool expected."],
-  argument_exact_match: ["Khớp argument", "Tỷ lệ episode truyền đúng argument tool expected."],
-  state_match: ["Khớp trạng thái", "Tỷ lệ episode có final state khớp expected."],
-  fdrc_pass_at_1: ["Pass FDRC", "Tỷ lệ episode FDRC pass toàn bộ tiêu chí."],
-  yield_latency_p50_ms: ["P50 nhường lời", "Trung vị độ trễ nhường lời sau khi user chen ngang."],
-  yield_latency_p95_ms: ["P95 nhường lời", "Phân vị 95 của độ trễ nhường lời."],
-  yield_latency_pass_rate: ["Pass latency", "Tỷ lệ episode có yield latency trong ngưỡng cho phép."],
-  policy_violation_rate: ["Vi phạm policy", "Tỷ lệ episode vi phạm policy benchmark."],
-  tool_validation_error_rate: ["Lỗi validation tool", "Tỷ lệ episode có lỗi schema, argument hoặc contract tool."],
-  old_intent_suppression_rate: ["Chặn ý định cũ", "Tỷ lệ episode không commit ý định cũ sau khi user sửa/hủy."],
-  forbidden_tool_call_rate: ["Gọi tool bị cấm", "Tỷ lệ episode có forbidden tool call."],
-};
+  // ---- tiny state -------------------------------------------------
+  const cache = { runs: null, summary: {}, episodes: {} };
+  const explorerFilters = { validity: "", passed: "", domain: "", failure: "" };
+  const explorerSort = { key: "episode_id", dir: 1 };
 
-const kpiByTrack = {
-  [TRACK_RETENTION]: {
-    primary: [
-      "pass_at_1",
-      "voice_capability_retention",
-      "critical_slot_accuracy",
-      "cabin_voice_pass_at_1",
-      "tool_exact_match",
-    ],
-    secondary: [
-      "text_pass_at_1",
-      "clean_voice_pass_at_1",
-      "argument_exact_match",
-      "state_match",
-      "tool_validation_error_rate",
-    ],
-  },
-  [TRACK_FDRC]: {
-    primary: [
-      "fdrc_pass_at_1",
-      "yield_latency_p50_ms",
-      "yield_latency_p95_ms",
-      "policy_violation_rate",
-      "state_match",
-    ],
-    secondary: [
-      "yield_latency_pass_rate",
-      "tool_validation_error_rate",
-      "old_intent_suppression_rate",
-      "forbidden_tool_call_rate",
-      "pass_at_1",
-    ],
-  },
-};
+  // ---- utils ------------------------------------------------------
+  const esc = (s) =>
+    String(s === null || s === undefined ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
 
-const failureDescriptions = {
-  FINAL_STATE_MISMATCH: "Final state không khớp expected state.",
-  CORRECTION_NOT_UPTAKEN: "Không tiếp nhận đúng lệnh sửa của user.",
-  YIELD_LATENCY_TOO_HIGH: "Nhường lời quá chậm sau khi user chen ngang.",
-  TOOL_SELECTION_ERROR: "Chọn sai tool hoặc thiếu tool cần gọi.",
-  VALIDATION_ERROR: "Episode/tool call vi phạm schema hoặc contract.",
-  POLICY_VIOLATION: "Vi phạm policy như commit sớm, commit trùng hoặc xác nhận ý định cũ.",
-  TOOL_ARGUMENT_ERROR: "Đúng tool nhưng sai argument.",
-  FORBIDDEN_TOOL_CALL: "Gọi tool thuộc ý định cũ hoặc tool bị cấm.",
-  OLD_INTENT_COMMITTED: "Đã commit ý định cũ sau khi user sửa/hủy.",
-  CRITICAL_SLOT_ERROR: "Critical slot bị sai hoặc mất.",
-  FABRICATED_SUCCESS: "Báo thành công nhưng tool/state không chứng minh thành công.",
-};
-
-const state = {
-  runs: [],
-  presets: [],
-  config: null,
-  selectedRun: null,
-  summary: null,
-  episodes: [],
-  allEpisodes: [],
-  activeJobId: null,
-  selectedDetail: null,
-  activeTab: "summary",
-  quickFilter: null,
-};
-
-function $(id) {
-  return document.getElementById(id);
-}
-
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
-}
-
-function fmt(value) {
-  if (value === null || value === undefined) return "N/A";
-  if (typeof value === "number") {
-    if (Math.abs(value) <= 1) return `${(value * 100).toFixed(1)}%`;
-    return Number.isInteger(value) ? `${value}` : value.toFixed(1);
-  }
-  return String(value);
-}
-
-function trackLabel(track) {
-  if (track === TRACK_RETENTION) return "Text-to-Voice Retention";
-  if (track === TRACK_FDRC) return "Full-Duplex Repair-to-Commit";
-  return track || "Không rõ";
-}
-
-async function fetchJson(url, options = undefined) {
-  const response = await fetch(url, options);
-  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-  return response.json();
-}
-
-function setStatus(text) {
-  $("statusPill").textContent = text;
-}
-
-function selectedTrack() {
-  return $("benchmarkSelect").value;
-}
-
-function primaryRunsForTrack(track) {
-  return state.runs.filter((run) => run.primary && run.benchmark_track === track);
-}
-
-function fallbackRunsForTrack(track) {
-  return state.runs.filter((run) => (run.tracks || []).includes(track));
-}
-
-function setOptions(select, values, allLabel = "Tất cả", keepValue = true) {
-  const previous = keepValue ? select.value : "";
-  select.innerHTML = `<option value="">${allLabel}</option>`;
-  for (const value of values || []) {
-    const option = document.createElement("option");
-    option.value = value;
-    option.textContent = value;
-    select.appendChild(option);
-  }
-  if ([...select.options].some((option) => option.value === previous)) {
-    select.value = previous;
-  }
-}
-
-function optionLabel(kind, value) {
-  const config = state.config || {};
-  if (kind === "domain") {
-    const item = (config.domains || []).find((row) => row.domain === value);
-    return item ? `${item.label} (${value})` : value;
-  }
-  if (kind === "speed") {
-    const item = (config.speech_speeds || []).find((row) => row.speech_speed === value);
-    return item ? `${item.label} (${value})` : value;
-  }
-  if (kind === "audio") {
-    if (value === "none") return "Không có audio condition (none)";
-    const item = (config.audio_conditions || []).find((row) => row.condition_id === value);
-    return item ? `${item.condition_id} — ${item.description}` : value;
-  }
-  if (kind === "accent") {
-    const persona = (config.personas || []).find((row) => row.accent_region === value);
-    return persona ? `${persona.accent_region_label} (${value})` : value;
-  }
-  return value;
-}
-
-function setLabeledOptions(select, values, kind, allLabel = "Tất cả", keepValue = true) {
-  const previous = keepValue ? select.value : "";
-  select.innerHTML = `<option value="">${allLabel}</option>`;
-  for (const value of values || []) {
-    const option = document.createElement("option");
-    option.value = value;
-    option.textContent = optionLabel(kind, value);
-    select.appendChild(option);
-  }
-  if ([...select.options].some((option) => option.value === previous)) {
-    select.value = previous;
-  }
-}
-
-function renderRuns() {
-  const track = selectedTrack();
-  const primary = primaryRunsForTrack(track);
-  const candidates = primary.length ? primary : fallbackRunsForTrack(track);
-  const select = $("runSelect");
-  select.innerHTML = "";
-  for (const run of candidates) {
-    const option = document.createElement("option");
-    option.value = run.run_id;
-    const suffix = run.data_provenance === "provider" ? "" : ` · ${run.provenance_label}`;
-    option.textContent = `${run.run_id} (${run.episode_count})${suffix}`;
-    select.appendChild(option);
-  }
-  if (!candidates.some((run) => run.run_id === state.selectedRun)) {
-    state.selectedRun = candidates[0]?.run_id || null;
-  }
-  select.value = state.selectedRun || "";
-  $("benchmarkPurpose").textContent = benchmarkText[track];
-}
-
-function renderPresets() {
-  const select = $("presetSelect");
-  const presets = state.presets.filter((preset) => preset.benchmark_track === selectedTrack());
-  select.innerHTML = "";
-  for (const preset of presets) {
-    const option = document.createElement("option");
-    option.value = preset.id;
-    option.textContent = preset.label;
-    select.appendChild(option);
-  }
-  alignPresetToBenchmark();
-  updateRunScope();
-}
-
-function alignPresetToBenchmark() {
-  const preferred = selectedTrack() === TRACK_RETENTION ? "retention_reference" : "fdrc_reference";
-  if ([...$("presetSelect").options].some((option) => option.value === preferred)) {
-    $("presetSelect").value = preferred;
-  }
-}
-
-function updateRunScope() {
-  const domain = $("domainFilter")?.value || "";
-  const domains = domain
-    ? [domain]
-    : state.summary?.metadata?.domains?.length
-      ? state.summary.metadata.domains
-      : ["automotive", "navigation", "media_phone"];
-  if ($("runDomains")) $("runDomains").value = domains.join(",");
-  const track = selectedTrack();
-  const domainText = domains.map((item) => optionLabel("domain", item)).join(", ");
-  $("runScopeText").textContent =
-    `Sẽ chạy ${trackLabel(track)} trên ${domainText}. Reference-agent không gọi provider; OpenAI preset sẽ dùng credential hiện có.`;
-  renderRunEstimate();
-}
-
-function selectedRunDomains() {
-  return ($("runDomains")?.value || "automotive,navigation,media_phone")
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function selectedRunPersonas() {
-  return ($("runPersonas")?.value || "vi_north_normal,vi_central_normal,vi_south_normal")
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function estimateEpisodeCount() {
-  const track = selectedTrack();
-  const counts = state.config?.overlay_counts?.[track] || {};
-  const overlayCount = selectedRunDomains().reduce((total, domain) => total + (counts[domain] || 0), 0);
-  const personaCount = selectedRunPersonas().length || 1;
-  const modeMultiplier = track === TRACK_RETENTION ? 2 : 1;
-  return {
-    overlayCount,
-    personaCount,
-    modeMultiplier,
-    total: overlayCount * personaCount * modeMultiplier,
+  const el = (html) => {
+    const t = document.createElement("template");
+    t.innerHTML = html.trim();
+    return t.content.firstElementChild;
   };
-}
 
-function renderRunEstimate() {
-  if (!$("runEstimate")) return;
-  const estimate = estimateEpisodeCount();
-  const provider = $("presetSelect")?.value?.includes("openai");
-  const audioModes = selectedTrack() === TRACK_RETENTION ? "clean + cabin_noise" : "interaction_stress";
-  $("runEstimate").innerHTML = `
-    <strong>Ước lượng:</strong> ${estimate.total} episode
-    (${estimate.overlayCount} overlay × ${estimate.personaCount} persona × ${estimate.modeMultiplier} mode).
-    <br><strong>Audio condition:</strong> ${audioModes}.
-    <br><strong>Nguồn chạy:</strong> ${provider ? "Provider/model thật, có thể phát sinh chi phí." : "Reference-agent, không gọi provider."}`;
-}
-
-function renderSummary() {
-  const summary = state.summary;
-  if (!summary) return;
-  $("runTitle").textContent = summary.run_id;
-  $("runMeta").textContent =
-    `Track: ${summary.benchmark_label} · Status: ${summary.status} · Episodes: ${summary.episode_count} · Source: ${summary.provenance_label} · Updated: ${summary.updated_at || "N/A"}`;
-  $("statusPill").textContent = summary.status;
-  $("benchmarkPurpose").textContent = benchmarkText[selectedTrack()];
-  renderProvenance(summary);
-  const metadata = summary.metadata || {};
-  setLabeledOptions($("domainFilter"), metadata.domains, "domain");
-  setOptions($("modeFilter"), metadata.modes);
-  setOptions($("failureFilter"), (summary.failure_counts || []).map((row) => row.key));
-  setLabeledOptions($("accentFilter"), metadata.accent_regions, "accent");
-  setLabeledOptions($("speedFilter"), metadata.speech_speeds, "speed");
-  setLabeledOptions($("audioFilter"), metadata.audio_conditions, "audio");
-  renderKpis();
-  renderBreakdown();
-  renderFailureBars("failureChart", summary.failure_counts || []);
-  renderLatency(summary.latency_summary || []);
-  renderFocusPanel();
-  updateRunScope();
-}
-
-function renderProvenance(summary) {
-  const banner = $("provenanceBanner");
-  if (!summary.provenance_warning) {
-    banner.classList.add("hidden");
-    banner.textContent = "";
-    return;
+  async function getJSON(url) {
+    const res = await fetch(url);
+    if (!res.ok) {
+      let detail = res.statusText;
+      try { detail = (await res.json()).detail || detail; } catch (_) {}
+      throw new Error(detail || ("HTTP " + res.status));
+    }
+    return res.json();
   }
-  banner.classList.remove("hidden");
-  banner.innerHTML = `<strong>${escapeHtml(summary.provenance_label)}.</strong> ${escapeHtml(summary.provenance_warning)}`;
-}
 
-function renderKpis() {
-  const config = kpiByTrack[selectedTrack()] || kpiByTrack[TRACK_RETENTION];
-  $("primaryKpiGrid").innerHTML = renderKpiCards(config.primary);
-  $("secondaryKpiGrid").innerHTML = renderKpiCards(config.secondary);
-}
+  function nav(route) { location.hash = H.buildHash(route); }
 
-function renderKpiCards(keys) {
-  return keys
-    .map((key) => {
-      const [label, help] = metricInfo[key] || [key, "Chưa có mô tả metric."];
-      return `
-        <div class="kpi" tabindex="0">
-          <div class="label">${escapeHtml(label)}</div>
-          <div class="value">${escapeHtml(fmt(state.summary?.metrics?.[key]))}</div>
-          <div class="metric-help">${escapeHtml(help)}</div>
-        </div>`;
-    })
-    .join("");
-}
-
-function breakdownRows() {
-  const key = $("breakdownSelect").value;
-  const map = {
-    domain: "pass_by_domain",
-    mode: "pass_by_mode",
-    accent_region: "pass_by_accent_region",
-    speech_speed: "pass_by_speech_speed",
-    audio_condition: "pass_by_audio_condition",
-  };
-  return state.summary?.[map[key]] || [];
-}
-
-function renderBreakdown() {
-  renderRateBars("breakdownChart", breakdownRows());
-}
-
-function renderRateBars(id, rows) {
-  const element = $(id);
-  if (!rows.length) {
-    element.innerHTML = '<div class="muted">Không có dữ liệu đã chấm điểm.</div>';
-    return;
+  function setStatus(routeText, meta) {
+    sbRoute.textContent = routeText;
+    if (meta !== undefined) sbMeta.textContent = meta;
   }
-  element.innerHTML = rows
-    .map((row) => {
-      const percent = row.rate === null || row.rate === undefined ? 0 : row.rate * 100;
-      return `
-        <div class="bar-row">
-          <div class="bar-label">${escapeHtml(row.key)}</div>
-          <div class="bar-track"><div class="bar-fill" style="width:${percent}%"></div></div>
-          <div class="bar-value">${escapeHtml(fmt(row.rate))}</div>
-        </div>`;
-    })
-    .join("");
-}
 
-function renderFailureBars(id, rows) {
-  const element = $(id);
-  if (!rows.length) {
-    element.innerHTML = '<div class="muted">Run này không ghi nhận lỗi.</div>';
-    return;
+  function persona(row) {
+    const parts = [row.accent_region, row.speech_speed].filter(Boolean);
+    return parts.length ? parts.join("·") : "—";
   }
-  const totalEpisodes = state.summary?.episode_count || 0;
-  const failedEpisodes = state.summary?.pass_fail?.failed || 0;
-  element.innerHTML = `
-    <div class="failure-note">
-      Đây là số episode có từng loại lỗi, không phải điểm số. Một episode fail có thể xuất hiện ở nhiều loại lỗi nếu nó
-      vừa sai tool, vừa sai state hoặc vi phạm policy.
+
+  // ---- data -------------------------------------------------------
+  async function loadRuns() {
+    if (cache.runs) return cache.runs;
+    const all = await getJSON("/api/runs");
+    cache.runs = all.filter(H.isFdrcRun);
+    return cache.runs;
+  }
+  async function loadSummary(runId) {
+    if (cache.summary[runId]) return cache.summary[runId];
+    const s = await getJSON(
+      `/api/runs/${encodeURIComponent(runId)}/summary?track=${FDRC}`
+    );
+    cache.summary[runId] = s;
+    return s;
+  }
+  function loadEpisodes(runId, filters) {
+    const q = new URLSearchParams({ track: FDRC });
+    if (filters.validity) q.set("validity", filters.validity);
+    if (filters.passed !== "") q.set("passed", filters.passed);
+    if (filters.domain) q.set("domain", filters.domain);
+    if (filters.failure) q.set("failure", filters.failure);
+    return getJSON(`/api/runs/${encodeURIComponent(runId)}/episodes?${q}`);
+  }
+
+  // ---- shared fragments ------------------------------------------
+  function stateBlock({ glyph, title, body, error }) {
+    return `<div class="state ${error ? "error" : ""}">
+      <div class="glyph">${glyph || "∅"}</div>
+      <h2>${esc(title)}</h2>
+      <p>${body || ""}</p>
+    </div>`;
+  }
+
+  function statusChip(status) {
+    const tone = H.statusTone(status);
+    const label = { pass: "PASS", fail: "FAIL", invalid: "INVALID", unscored: "—" }[status];
+    return `<span class="chip ${tone}"><span class="dotpip"></span>${label}</span>`;
+  }
+
+  function runSelector(runs, runId) {
+    const opts = runs
+      .map(
+        (r) =>
+          `<option value="${esc(r.run_id)}" ${r.run_id === runId ? "selected" : ""}>${esc(
+            r.run_id
+          )} · ${r.episode_count} ep · ${esc(r.run_kind || "?")}</option>`
+      )
+      .join("");
+    return `<div class="field">
+      <label>FDRC Run</label>
+      <select id="run-select">${opts}</select>
+    </div>`;
+  }
+
+  // ================================================================
+  // VIEW: Overview
+  // ================================================================
+  async function renderOverview(route) {
+    setStatus("fdrc / overview", "loading runs…");
+    view.innerHTML = `<div class="skeleton"></div><div class="skeleton"></div>`;
+
+    let runs;
+    try {
+      runs = await loadRuns();
+    } catch (e) {
+      view.innerHTML = stateBlock({ glyph: "⚠", title: "Không tải được /api/runs", body: esc(e.message), error: true });
+      return;
+    }
+    if (!runs.length) {
+      view.innerHTML = stateBlock({
+        glyph: "∅",
+        title: "Chưa có FDRC run nào",
+        body: "Thư mục <code>results/</code> chưa có run nào thuộc track Full-Duplex Repair-to-Commit.",
+      });
+      return;
+    }
+
+    const runId = route.runId && runs.some((r) => r.run_id === route.runId)
+      ? route.runId
+      : runs[0].run_id;
+
+    view.innerHTML = `<div class="controls">${runSelector(runs, runId)}
+      <div class="spacer"></div>
+      <button class="btn" id="go-episodes">Episode Explorer →</button>
     </div>
-    <div class="failure-list">
-      ${rows
-        .map((row) => {
-          const runPercent = totalEpisodes ? row.count / totalEpisodes : null;
-          const failPercent = failedEpisodes ? row.count / failedEpisodes : null;
-          const barPercent = runPercent === null ? 0 : runPercent * 100;
-      const desc = failureDescriptions[row.key] || "Chưa có mô tả lỗi.";
-      return `
-          <div class="failure-row" title="${escapeHtml(desc)}">
-            <div class="failure-copy">
-              <strong>${escapeHtml(row.key)}</strong>
-              <span>${escapeHtml(desc)}</span>
-            </div>
-            <div class="failure-meter" aria-label="${escapeHtml(row.count)} episode">
-              <div class="bar-track"><div class="bar-fill failure" style="width:${barPercent}%"></div></div>
-              <div class="failure-value">
-                <strong>${row.count} episode</strong>
-                <span>${escapeHtml(fmt(runPercent))} của run${failPercent === null ? "" : ` · ${escapeHtml(fmt(failPercent))} trên episode fail`}</span>
-              </div>
-            </div>
-          </div>`;
-        })
-        .join("")}
+    <div id="ov-body"><div class="skeleton"></div></div>`;
+
+    document.getElementById("run-select").addEventListener("change", (e) =>
+      nav({ tab: "fdrc", view: "overview", runId: e.target.value })
+    );
+    document.getElementById("go-episodes").addEventListener("click", () =>
+      nav({ tab: "fdrc", view: "episodes", runId })
+    );
+
+    setStatus(`fdrc / overview / ${runId}`, "loading summary…");
+    let summary, episodesResp;
+    try {
+      [summary, episodesResp] = await Promise.all([
+        loadSummary(runId),
+        loadEpisodes(runId, {}),
+      ]);
+    } catch (e) {
+      document.getElementById("ov-body").innerHTML = stateBlock({
+        glyph: "⚠", title: "Không tải được summary", body: esc(e.message), error: true,
+      });
+      return;
+    }
+
+    const rep = H.deriveReportability(summary);
+    const vs = H.validitySummary(episodesResp.episodes);
+    const pf = summary.pass_fail || { passed: 0, failed: 0, unscored: 0 };
+
+    const banner = `<div class="banner tone-${rep.tone}">
+      <div class="banner-icon">${rep.tone === "pass" ? "◆" : rep.tone === "warn" ? "▲" : "■"}</div>
+      <div class="banner-body">
+        <h3>${esc(rep.label)}</h3>
+        <p>${esc(rep.note)}</p>
+      </div>
+      <div class="banner-meta">
+        <span>provenance<b>${esc(summary.data_provenance || "—")}</b></span>
+        <span>run kind<b>${esc(summary.run_kind || "—")}</b></span>
+        <span>source<b>${esc(summary.metric_source || "—")}</b></span>
+      </div>
     </div>`;
-}
 
-function renderLatency(rows) {
-  const element = $("latencyChart");
-  if (!rows.length) {
-    element.innerHTML = '<div class="muted">Không có latency hợp lệ trong run này.</div>';
-    return;
-  }
-  element.innerHTML = `
-    <table class="latency-table">
-      <thead><tr><th>Metric</th><th>Số mẫu</th><th>Nhỏ nhất</th><th>P50</th><th>P95</th><th>Lớn nhất</th></tr></thead>
-      <tbody>
-        ${rows
-          .map(
-            (row) => `
-              <tr>
-                <td>${escapeHtml(row.metric)}</td>
-                <td>${row.count}</td>
-                <td>${escapeHtml(fmt(row.min_ms))} ms</td>
-                <td>${escapeHtml(fmt(row.p50_ms))} ms</td>
-                <td>${escapeHtml(fmt(row.p95_ms))} ms</td>
-                <td>${escapeHtml(fmt(row.max_ms))} ms</td>
-              </tr>`,
-          )
-          .join("")}
-      </tbody>
-    </table>`;
-}
+    const statline = `<div class="statline">
+      <div class="stat"><span class="k">Episodes</span><span class="v">${summary.episode_count ?? "—"}</span></div>
+      <div class="stat"><span class="k">Validity</span><span class="v">${
+        vs.rate === null ? "—" : H.fmtPct(vs.rate)
+      } <small>${vs.valid}/${vs.known || vs.total}</small></span></div>
+      <div class="stat"><span class="k">Pass</span><span class="v" style="color:var(--pass)">${pf.passed}</span></div>
+      <div class="stat"><span class="k">Fail</span><span class="v" style="color:var(--fail)">${pf.failed}</span></div>
+      <div class="stat"><span class="k">Unscored</span><span class="v muted">${pf.unscored}</span></div>
+    </div>`;
 
-function renderFocusPanel() {
-  const panel = $("focusPanel");
-  if (selectedTrack() === TRACK_FDRC) {
-    $("focusPanelTitle").textContent = "Độ trễ và rủi ro ngắt lời";
-    const slow = state.summary?.top_yield_latency_episodes || [];
-    panel.innerHTML = slow.length
-      ? `<div class="mini-list">${slow
-          .map(
-            (row) => `
-              <button class="mini-item" data-episode-id="${escapeHtml(row.episode_id)}">
-                <span>${escapeHtml(row.episode_id)}</span>
-                <strong>${escapeHtml(fmt(row.value))} ms</strong>
-              </button>`,
-          )
-          .join("")}</div>`
-      : '<div class="muted">Không có yield latency để xếp hạng.</div>';
-  } else {
-    $("focusPanelTitle").textContent = "Slot và suy giảm voice";
-    panel.innerHTML = `
-      <div class="focus-grid">
-        <div><span>Pass text baseline</span><strong>${fmt(state.summary?.metrics?.text_pass_at_1)}</strong></div>
-        <div><span>Pass voice sạch</span><strong>${fmt(state.summary?.metrics?.clean_voice_pass_at_1)}</strong></div>
-        <div><span>Pass voice cabin</span><strong>${fmt(state.summary?.metrics?.cabin_voice_pass_at_1)}</strong></div>
-        <div><span>Khoảng suy giảm voice</span><strong>${fmt(state.summary?.metrics?.voice_degradation_gap)}</strong></div>
-      </div>`;
+    document.getElementById("ov-body").innerHTML = banner + statline + renderMetricGroups(summary);
+    setStatus(`fdrc / overview / ${runId}`, `${summary.episode_count ?? 0} episodes`);
   }
-  for (const item of panel.querySelectorAll("[data-episode-id]")) {
-    item.addEventListener("click", () => loadEpisode(item.dataset.episodeId));
-  }
-}
 
-function filtersQuery() {
-  const params = new URLSearchParams();
-  const filters = [
-    ["track", selectedTrack()],
-    ["domain", $("domainFilter").value],
-    ["mode", $("modeFilter").value],
-    ["failure", $("failureFilter").value],
+  function metricStatusClass(status) {
+    if (status === "ok" || status === "pass") return "s-pass";
+    if (status === "warn" || status === "nullable" || status === "null") return "";
+    if (status === "violation" || status === "fail") return "s-fail";
+    return "";
+  }
+
+  function renderMetricGroups(summary) {
+    const catalog = summary.metric_catalog || [];
+    const byKey = {};
+    for (const m of catalog) byKey[m.key] = m;
+    let groups = summary.metric_groups || [];
+    // Prefer the FDRC-relevant groups; fall back to all if shape differs.
+    const wanted = ["fdrc", "latency", "contract", "tool_state", "policy", "overview"];
+    if (groups.length) {
+      groups = groups.slice().sort((a, b) => {
+        const ia = wanted.findIndex((w) => String(a.id).includes(w));
+        const ib = wanted.findIndex((w) => String(b.id).includes(w));
+        return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+      });
+    }
+    if (!groups.length) {
+      return catalogGrid(catalog);
+    }
+    return groups
+      .map((g) => {
+        const cards = (g.metric_keys || [])
+          .map((k) => byKey[k])
+          .filter(Boolean)
+          .map(metricCard)
+          .join("");
+        if (!cards) return "";
+        return `<div class="group-label">${esc(g.label || g.id)}</div>
+          <div class="metric-grid">${cards}</div>`;
+      })
+      .join("");
+  }
+
+  function catalogGrid(catalog) {
+    return `<div class="metric-grid">${catalog.map(metricCard).join("")}</div>`;
+  }
+
+  function metricCard(m) {
+    const isNull = m.value === null || m.value === undefined;
+    const valHtml = isNull
+      ? `<div class="metric-value null">${esc(m.null_reason || "N/A")}</div>`
+      : `<div class="metric-value">${esc(H.fmtMetric(m))}</div>`;
+    const denom = m.denominator ? `n=${esc(m.denominator)}` : "";
+    return `<div class="metric ${metricStatusClass(m.status)}">
+      <div class="metric-label">${esc(m.label || m.key)}</div>
+      ${valHtml}
+      <div class="metric-foot"><span>${esc(m.group || "")}</span><span>${denom}</span></div>
+    </div>`;
+  }
+
+  // ================================================================
+  // VIEW: Episode Explorer
+  // ================================================================
+  async function renderEpisodes(route) {
+    const runId = route.runId;
+    setStatus(`fdrc / episodes / ${runId}`, "loading…");
+    view.innerHTML = `
+      <button class="crumb" id="back-ov">← Overview</button>
+      <div class="section-head"><h2>Episode Explorer</h2><span class="count" id="ep-count">—</span></div>
+      <div class="controls" id="ep-filters"></div>
+      <div id="ep-table"><div class="skeleton"></div></div>`;
+
+    document.getElementById("back-ov").addEventListener("click", () =>
+      nav({ tab: "fdrc", view: "overview", runId })
+    );
+
+    let summary;
+    try { summary = await loadSummary(runId); } catch (_) { summary = {}; }
+    renderEpFilters(summary);
+    await refreshEpisodeTable(runId);
+  }
+
+  function renderEpFilters(summary) {
+    const domains = (summary.pass_by_domain || []).map((d) => d.key).filter(Boolean);
+    const failures = (summary.failure_counts || []).map((f) => f.key).filter(Boolean);
+    const sel = (id, label, value, opts) => `<div class="field">
+      <label>${label}</label>
+      <select id="${id}">${opts
+        .map((o) => `<option value="${esc(o.v)}" ${o.v === value ? "selected" : ""}>${esc(o.t)}</option>`)
+        .join("")}</select></div>`;
+
+    document.getElementById("ep-filters").innerHTML =
+      sel("f-validity", "Validity", explorerFilters.validity, [
+        { v: "", t: "all" }, { v: "valid", t: "valid" }, { v: "invalid", t: "invalid" },
+      ]) +
+      sel("f-passed", "Result", explorerFilters.passed, [
+        { v: "", t: "all" }, { v: "true", t: "pass" }, { v: "false", t: "fail" },
+      ]) +
+      sel("f-domain", "Domain", explorerFilters.domain,
+        [{ v: "", t: "all" }].concat(domains.map((d) => ({ v: d, t: d })))) +
+      sel("f-failure", "Failure", explorerFilters.failure,
+        [{ v: "", t: "all" }].concat(failures.map((f) => ({ v: f, t: f }))));
+
+    const runId = currentRoute().runId;
+    const bind = (id, key) =>
+      document.getElementById(id).addEventListener("change", (e) => {
+        explorerFilters[key] = e.target.value;
+        refreshEpisodeTable(runId);
+      });
+    bind("f-validity", "validity");
+    bind("f-passed", "passed");
+    bind("f-domain", "domain");
+    bind("f-failure", "failure");
+  }
+
+  const SORTABLE = [
+    { key: "episode_id", label: "Episode", cls: "" },
+    { key: "domain", label: "Domain", cls: "" },
+    { key: "persona", label: "Persona", cls: "" },
+    { key: "fdrc_valid", label: "Validity", cls: "" },
+    { key: "passed", label: "Result", cls: "" },
+    { key: "yield_latency_ms", label: "Yield ms", cls: "cell-num" },
+    { key: "primary_failure_type", label: "Primary failure", cls: "" },
   ];
-  for (const [key, value] of filters) {
-    if (value) params.set(key, value);
+
+  async function refreshEpisodeTable(runId) {
+    const host = document.getElementById("ep-table");
+    host.innerHTML = `<div class="skeleton"></div>`;
+    let resp;
+    try {
+      resp = await loadEpisodes(runId, explorerFilters);
+    } catch (e) {
+      host.innerHTML = stateBlock({ glyph: "⚠", title: "Không tải được episodes", body: esc(e.message), error: true });
+      return;
+    }
+    const rows = resp.episodes.slice();
+    const cnt = document.getElementById("ep-count");
+    if (cnt) cnt.textContent = `${resp.count} / ${resp.total}`;
+    setStatus(`fdrc / episodes / ${runId}`, `${resp.count} of ${resp.total}`);
+
+    if (!rows.length) {
+      host.innerHTML = stateBlock({ glyph: "∅", title: "Không có episode khớp filter", body: "Thử nới lỏng bộ lọc." });
+      return;
+    }
+
+    sortRows(rows);
+
+    const head = SORTABLE.map((c) => {
+      const active = explorerSort.key === c.key;
+      const arrow = active ? `<span class="arrow">${explorerSort.dir > 0 ? "▲" : "▼"}</span>` : "";
+      return `<th data-sort="${c.key}" class="${c.cls}">${c.label} ${arrow}</th>`;
+    }).join("");
+
+    const body = rows
+      .map((r) => {
+        const st = H.episodeStatus(r);
+        const vChip = r.fdrc_valid === false
+          ? `<span class="chip warn">INVALID</span>`
+          : r.fdrc_valid === true
+          ? `<span class="chip pass">VALID</span>`
+          : `<span class="chip gray">—</span>`;
+        const fail = r.primary_failure_type
+          ? `<span class="chip fail">${esc(r.primary_failure_type)}</span>`
+          : `<span class="cell-muted">—</span>`;
+        return `<tr data-ep="${esc(r.episode_id)}">
+          <td class="cell-id" title="${esc(r.episode_id)}">${esc(r.episode_id)}</td>
+          <td>${esc(r.domain || "—")}</td>
+          <td class="cell-muted">${esc(persona(r))}</td>
+          <td>${vChip}</td>
+          <td>${statusChip(st)}</td>
+          <td class="cell-num">${r.yield_latency_ms == null ? "—" : H.fmtMs(r.yield_latency_ms)}</td>
+          <td>${fail}</td>
+        </tr>`;
+      })
+      .join("");
+
+    host.innerHTML = `<div class="table-wrap"><table class="episodes">
+      <thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+
+    host.querySelectorAll("thead th").forEach((th) =>
+      th.addEventListener("click", () => {
+        const key = th.getAttribute("data-sort");
+        if (explorerSort.key === key) explorerSort.dir *= -1;
+        else { explorerSort.key = key; explorerSort.dir = 1; }
+        refreshEpisodeTable(runId);
+      })
+    );
+    host.querySelectorAll("tbody tr").forEach((tr) =>
+      tr.addEventListener("click", () =>
+        nav({ tab: "fdrc", view: "episode", runId, episodeId: tr.getAttribute("data-ep") })
+      )
+    );
   }
-  if ($("passFilter").value) params.set("passed", $("passFilter").value);
-  return params.toString();
-}
 
-function applyClientFilters(rows) {
-  return rows.filter((episode) => {
-    if ($("accentFilter").value && episode.accent_region !== $("accentFilter").value) return false;
-    if ($("speedFilter").value && episode.speech_speed !== $("speedFilter").value) return false;
-    if ($("audioFilter").value && episode.audio_condition_id !== $("audioFilter").value) return false;
-    if (state.quickFilter === "failed" && episode.passed !== false) return false;
-    if (state.quickFilter === "policy" && !episode.failure_types.includes("POLICY_VIOLATION")) return false;
-    if (state.quickFilter === "slot" && episode.critical_slot_passed !== false) return false;
-    if (state.quickFilter === "latency" && (episode.yield_latency_ms ?? 0) < 700) return false;
-    if (
-      state.quickFilter === "tool" &&
-      episode.tool_exact_match !== 0 &&
-      !episode.failure_types.includes("TOOL_SELECTION_ERROR")
-    ) return false;
-    return true;
-  });
-}
-
-function renderEpisodes(payload) {
-  state.allEpisodes = payload.episodes || [];
-  state.episodes = applyClientFilters(state.allEpisodes);
-  $("episodeCount").textContent = `${state.episodes.length} / ${payload.total}`;
-  renderEpisodeHead();
-  $("episodeRows").innerHTML = state.episodes.map(renderEpisodeRow).join("");
-  for (const row of $("episodeRows").querySelectorAll("tr")) {
-    row.addEventListener("click", () => loadEpisode(row.dataset.episodeId));
-  }
-}
-
-function renderEpisodeHead() {
-  const retention = selectedTrack() === TRACK_RETENTION;
-  $("episodeHead").innerHTML = retention
-    ? `<tr><th>Episode</th><th>Kết quả</th><th>Domain</th><th>Chế độ</th><th>Vùng giọng</th><th>Tốc độ</th><th>Critical slot</th><th>Tool</th><th>Argument</th><th>State</th><th>Lỗi chính</th></tr>`
-    : `<tr><th>Episode</th><th>Kết quả</th><th>Domain</th><th>Vùng giọng</th><th>Tốc độ</th><th>Yield latency</th><th>Chặn ý định cũ</th><th>Tiếp nhận sửa</th><th>Tool</th><th>Lỗi chính</th></tr>`;
-}
-
-function renderEpisodeRow(episode) {
-  const passClass = episode.passed === true ? "ok" : episode.passed === false ? "fail" : "warn";
-  const passLabel = episode.passed === true ? "Pass" : episode.passed === false ? "Fail" : "Chưa chấm";
-  const passPill = `<span class="pill ${passClass}">${passLabel}</span>`;
-  const toolText = (episode.tool_names || []).join(", ") || "";
-  if (selectedTrack() === TRACK_RETENTION) {
-    return `
-      <tr data-episode-id="${escapeHtml(episode.episode_id)}">
-        <td>${escapeHtml(episode.episode_id)}</td>
-        <td>${passPill}</td>
-        <td>${escapeHtml(episode.domain)}</td>
-        <td>${escapeHtml(episode.mode)}</td>
-        <td>${escapeHtml(episode.accent_region)}</td>
-        <td>${escapeHtml(episode.speech_speed)}</td>
-        <td>${escapeHtml(slotText(episode))}</td>
-        <td>${escapeHtml(fmtBool(episode.tool_exact_match))}</td>
-        <td>${escapeHtml(fmtBool(episode.argument_exact_match))}</td>
-        <td>${escapeHtml(fmtBool(episode.state_match))}</td>
-        <td>${escapeHtml(episode.primary_failure_type || "")}</td>
-      </tr>`;
-  }
-  return `
-    <tr data-episode-id="${escapeHtml(episode.episode_id)}">
-      <td>${escapeHtml(episode.episode_id)}</td>
-      <td>${passPill}</td>
-      <td>${escapeHtml(episode.domain)}</td>
-      <td>${escapeHtml(episode.accent_region)}</td>
-      <td>${escapeHtml(episode.speech_speed)}</td>
-      <td>${escapeHtml(fmt(episode.yield_latency_ms))}</td>
-      <td>${escapeHtml(episode.old_intent_committed === false ? "Có" : episode.old_intent_committed === true ? "Không" : "N/A")}</td>
-      <td>${escapeHtml(fmtBool(episode.correction_uptaken))}</td>
-      <td>${escapeHtml(toolText)}</td>
-      <td>${escapeHtml(episode.primary_failure_type || "")}</td>
-    </tr>`;
-}
-
-function slotText(episode) {
-  if (episode.critical_slot_total === undefined || episode.critical_slot_total === null) return "N/A";
-  return `${episode.critical_slot_correct ?? 0}/${episode.critical_slot_total}`;
-}
-
-function fmtBool(value) {
-  if (value === true || value === 1) return "Có";
-  if (value === false || value === 0) return "Không";
-  return "N/A";
-}
-
-function renderJson(value) {
-  return `<pre>${escapeHtml(JSON.stringify(value ?? null, null, 2))}</pre>`;
-}
-
-function renderTranscript(transcript) {
-  const user = transcript?.user || [];
-  const assistant = transcript?.assistant || [];
-  return `
-    <div class="transcript">
-      <div class="turn"><strong>User</strong>${escapeHtml(user.join(" "))}</div>
-      <div class="turn"><strong>Assistant</strong>${escapeHtml(assistant.join(" "))}</div>
-    </div>`;
-}
-
-function renderTimeline(events) {
-  if (!events?.length) return '<div class="muted">Không có timeline event.</div>';
-  return `
-    <div class="timeline">
-      ${events
-        .map(
-          (event) => `
-            <div class="timeline-event ${event.priority ? "priority" : ""}">
-              <div>${escapeHtml(event.t_ms)} ms</div>
-              <div>
-                <strong>${escapeHtml(event.event || event.type)}</strong>
-                ${event.tool ? ` · ${escapeHtml(event.tool)}` : ""}
-                ${event.text ? `<div>${escapeHtml(event.text)}</div>` : ""}
-              </div>
-            </div>`,
-        )
-        .join("")}
-    </div>`;
-}
-
-function failureConclusion(detail) {
-  const failure = detail.summary?.primary_failure_type;
-  if (!failure) return detail.summary?.passed ? "Episode pass toàn bộ tiêu chí." : "Episode fail nhưng không có primary failure rõ ràng.";
-  return failureDescriptions[failure] || `Fail do ${failure}.`;
-}
-
-function renderDetail() {
-  const detail = state.selectedDetail;
-  if (!detail) return;
-  const body = $("detailBody");
-  const tab = state.activeTab;
-  if (tab === "summary") {
-    body.innerHTML = `
-      <div class="summary-grid">
-        <div><span>Kết luận</span><strong>${escapeHtml(failureConclusion(detail))}</strong></div>
-        <div><span>Kết quả</span><strong>${detail.summary.passed ? "Pass" : "Fail"}</strong></div>
-        <div><span>Lỗi chính</span><strong>${escapeHtml(detail.summary.primary_failure_type || "Không có")}</strong></div>
-        <div><span>Domain</span><strong>${escapeHtml(detail.summary.domain)}</strong></div>
-        <div><span>Chế độ</span><strong>${escapeHtml(detail.summary.mode)}</strong></div>
-        <div><span>Vùng giọng / tốc độ</span><strong>${escapeHtml(detail.summary.accent_region)} / ${escapeHtml(detail.summary.speech_speed)}</strong></div>
-        <div><span>Độ trễ phản hồi</span><strong>${fmt(detail.summary.response_latency_ms)}</strong></div>
-        <div><span>Độ trễ nhường lời</span><strong>${fmt(detail.summary.yield_latency_ms)}</strong></div>
-      </div>`;
-  } else if (tab === "conversation") {
-    body.innerHTML = renderTranscript(detail.transcript);
-  } else if (tab === "timeline") {
-    body.innerHTML = renderTimeline(detail.timeline);
-  } else if (tab === "tool_state") {
-    body.innerHTML = `<div class="detail-grid">
-      <div class="subpanel"><h4>Lệnh gọi công cụ</h4>${renderJson(detail.tool_calls)}</div>
-      <div class="subpanel"><h4>Kết quả công cụ</h4>${renderJson(detail.tool_results)}</div>
-      <div class="subpanel"><h4>Trạng thái ban đầu</h4>${renderJson(detail.initial_state)}</div>
-      <div class="subpanel"><h4>Trạng thái cuối</h4>${renderJson(detail.final_state)}</div>
-    </div>`;
-  } else if (tab === "evidence") {
-    const evidence = selectedTrack() === TRACK_RETENTION ? detail.retention : detail.repair;
-    body.innerHTML = renderJson(evidence);
-  } else {
-    body.innerHTML = renderJson(detail.raw);
-  }
-}
-
-async function loadRuns() {
-  setStatus("Đang tải");
-  state.runs = await fetchJson("/api/runs");
-  state.presets = await fetchJson("/api/run-presets");
-  state.config = await fetchJson("/api/dashboard-config");
-  renderPresets();
-  renderRuns();
-  if (state.selectedRun) {
-    await loadRun(state.selectedRun);
-  } else {
-    setStatus("Không có run");
-    $("runTitle").textContent = "Không có run phù hợp";
-  }
-}
-
-async function loadRun(runId) {
-  if (!runId) return;
-  state.selectedRun = runId;
-  const params = new URLSearchParams();
-  params.set("track", selectedTrack());
-  state.summary = await fetchJson(`/api/runs/${encodeURIComponent(runId)}/summary?${params.toString()}`);
-  state.quickFilter = null;
-  renderSummary();
-  await loadEpisodes();
-}
-
-async function loadEpisodes() {
-  if (!state.selectedRun) return;
-  const query = filtersQuery();
-  const payload = await fetchJson(
-    `/api/runs/${encodeURIComponent(state.selectedRun)}/episodes${query ? `?${query}` : ""}`,
-  );
-  renderEpisodes(payload);
-}
-
-async function loadEpisode(episodeId) {
-  const detail = await fetchJson(
-    `/api/runs/${encodeURIComponent(state.selectedRun)}/episodes/${encodeURIComponent(episodeId)}`,
-  );
-  state.selectedDetail = detail;
-  state.activeTab = "summary";
-  $("detailTitle").textContent = detail.summary?.episode_id || "Chi tiết episode";
-  $("detailTabs").classList.remove("hidden");
-  for (const button of $("detailTabs").querySelectorAll("button")) {
-    button.classList.toggle("active", button.dataset.tab === state.activeTab);
-  }
-  $("detailBody").classList.remove("muted");
-  renderDetail();
-}
-
-async function startBenchmark() {
-  $("runButton").disabled = true;
-  $("jobStatus").textContent = "Đang khởi động benchmark...";
-  try {
-    const payload = {
-      preset_id: $("presetSelect").value,
-      domains: $("runDomains").value.trim() || "automotive,navigation,media_phone",
-      personas: $("runPersonas").value.trim() || "vi_north_normal,vi_central_normal,vi_south_normal",
-      model: $("runModel").value.trim() || null,
-    };
-    const job = await fetchJson("/api/benchmark-runs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    state.activeJobId = job.job_id;
-    pollJob();
-  } catch (error) {
-    $("jobStatus").textContent = `Không chạy được: ${error.message}`;
-    $("runButton").disabled = false;
-  }
-}
-
-async function pollJob() {
-  if (!state.activeJobId) return;
-  const job = await fetchJson(`/api/benchmark-runs/${state.activeJobId}`);
-  $("jobStatus").textContent = `${job.label}: ${job.status}. Output: ${job.run_id}`;
-  if (job.status === "running") {
-    setTimeout(pollJob, 2000);
-    return;
-  }
-  $("runButton").disabled = false;
-  if (job.status === "failed") {
-    $("jobStatus").textContent += `\n${job.stderr || job.stdout || "Không có log lỗi."}`;
-  }
-  await loadRuns();
-  state.selectedRun = job.run_id;
-  renderRuns();
-  await loadRun(job.run_id);
-}
-
-function openRunModal() {
-  renderPresets();
-  $("runModal").classList.remove("hidden");
-}
-
-function closeRunModal() {
-  $("runModal").classList.add("hidden");
-}
-
-function bindEvents() {
-  $("refreshButton").addEventListener("click", loadRuns);
-  $("openRunModalButton").addEventListener("click", openRunModal);
-  $("closeRunModalButton").addEventListener("click", closeRunModal);
-  $("benchmarkSelect").addEventListener("change", async () => {
-    renderPresets();
-    renderRuns();
-    if (state.selectedRun) await loadRun(state.selectedRun);
-  });
-  $("runSelect").addEventListener("change", (event) => loadRun(event.target.value));
-  for (const id of ["domainFilter", "modeFilter", "failureFilter", "passFilter"]) {
-    $(id).addEventListener("change", loadEpisodes);
-  }
-  for (const id of ["accentFilter", "speedFilter", "audioFilter"]) {
-    $(id).addEventListener("change", () => renderEpisodes({ episodes: state.allEpisodes, total: state.allEpisodes.length }));
-  }
-  $("domainFilter").addEventListener("change", updateRunScope);
-  $("breakdownSelect").addEventListener("change", renderBreakdown);
-  $("presetSelect").addEventListener("change", renderRunEstimate);
-  $("runDomains").addEventListener("input", renderRunEstimate);
-  $("runPersonas").addEventListener("input", renderRunEstimate);
-  $("runButton").addEventListener("click", startBenchmark);
-  for (const button of document.querySelectorAll(".quick-filters button")) {
-    button.addEventListener("click", () => {
-      state.quickFilter = button.dataset.filter === "clear" ? null : button.dataset.filter;
-      renderEpisodes({ episodes: state.allEpisodes, total: state.allEpisodes.length });
+  function sortRows(rows) {
+    const k = explorerSort.key;
+    const dir = explorerSort.dir;
+    rows.sort((a, b) => {
+      let va = k === "persona" ? persona(a) : a[k];
+      let vb = k === "persona" ? persona(b) : b[k];
+      if (va === null || va === undefined) return 1;
+      if (vb === null || vb === undefined) return -1;
+      if (typeof va === "number" && typeof vb === "number") return (va - vb) * dir;
+      return String(va).localeCompare(String(vb)) * dir;
     });
   }
-  for (const button of $("detailTabs").querySelectorAll("button")) {
-    button.addEventListener("click", () => {
-      state.activeTab = button.dataset.tab;
-      for (const item of $("detailTabs").querySelectorAll("button")) {
-        item.classList.toggle("active", item.dataset.tab === state.activeTab);
+
+  // ================================================================
+  // VIEW: Episode Detail
+  // ================================================================
+  async function renderEpisodeDetail(route) {
+    const { runId, episodeId } = route;
+    setStatus(`fdrc / episode / ${episodeId}`, "loading…");
+    view.innerHTML = `<button class="crumb" id="back-eps">← Episodes</button>
+      <div class="skeleton"></div><div class="skeleton"></div>`;
+    document.getElementById("back-eps").addEventListener("click", () =>
+      nav({ tab: "fdrc", view: "episodes", runId })
+    );
+
+    let d;
+    try {
+      d = await getJSON(
+        `/api/runs/${encodeURIComponent(runId)}/episodes/${encodeURIComponent(episodeId)}`
+      );
+    } catch (e) {
+      view.innerHTML =
+        `<button class="crumb" id="back-eps2">← Episodes</button>` +
+        stateBlock({ glyph: "⚠", title: "Không tải được episode", body: esc(e.message), error: true });
+      document.getElementById("back-eps2").addEventListener("click", () =>
+        nav({ tab: "fdrc", view: "episodes", runId }));
+      return;
+    }
+
+    const s = d.summary || {};
+    const repair = d.repair || {};
+    const validity = d.fdrc_validity || {};
+    const scores = d.scores || {};
+    const contract = d.contract || {};
+    const status = H.episodeStatus(s);
+    const yl = s.yield_latency_ms;
+
+    const header = `<div class="ep-header">
+      <div class="ep-id">${esc(s.episode_id || episodeId)}</div>
+      <div class="ep-tags">
+        ${statusChip(status)}
+        ${validity.valid === false ? `<span class="chip warn">INVALID</span>` : `<span class="chip pass">VALID</span>`}
+        ${s.primary_failure_type ? `<span class="chip fail">${esc(s.primary_failure_type)}</span>` : ""}
+        <span class="chip">${esc(s.domain || "—")}</span>
+        <span class="chip gray">${esc(persona(s))}</span>
+        <span class="chip">${esc(s.audio_condition_id || "")}</span>
+      </div>
+      <div class="ep-intent">
+        <span>initial</span><b>${esc(intentText(contract.initial_intent) || "—")}</b>
+        <span class="arrow">→ repair</span><b>${esc(contract.repair_utterance || repair.correction_text || "—")}</b>
+      </div>
+    </div>`;
+
+    const contractPanel = `<div class="panel"><h3>Overlay Contract</h3>
+      <dl class="kv">
+        <dt>task</dt><dd>${esc(contract.task_description || "—")}</dd>
+        <dt>initial utter</dt><dd>${esc(contract.initial_spoken_utterance || "—")}</dd>
+        <dt>repair utter</dt><dd>${esc(contract.repair_utterance || "—")}</dd>
+        <dt>final intent</dt><dd>${esc(contract.final_intent || repair.final_intent || "—")}</dd>
+        <dt>expected tool</dt><dd>${esc(summarizeCalls(contract.expected_tool_calls))}</dd>
+        <dt>forbidden tool</dt><dd>${esc(summarizeCalls(contract.forbidden_tool_calls))}</dd>
+      </dl></div>`;
+
+    const verdictPanel = `<div class="panel"><h3>Verdict</h3>
+      ${assertRow(validity.valid !== false, `validity: ${esc(validity.status || (validity.valid ? "VALID" : "INVALID"))}`, validity.valid === undefined)}
+      ${assertRow(scores.task_pass === 1, "task pass", scores.task_pass == null)}
+      ${assertRow(scores.policy_pass === 1, "policy pass", scores.policy_pass == null)}
+      ${assertRow(scores.voice_pass === 1, "voice pass", scores.voice_pass == null)}
+      ${assertRow(scores.final_pass === 1, "final pass", scores.final_pass == null)}
+      <div class="assert ${yl == null ? "na" : yl <= 1000 ? "ok" : "bad"}">
+        <span class="mark">${yl == null ? "·" : "◷"}</span>
+        <span class="txt">yield latency: ${yl == null ? "—" : H.fmtMs(yl)}</span>
+      </div>
+    </div>`;
+
+    const timeline = renderTimeline(d.timeline || [], { yieldLatency: yl });
+
+    const repairPanel = `<div class="panel"><h3>Repair / Commit Safety</h3>
+      ${assertRow(repair.assistant_speaking_before_interrupt !== false, "assistant speaking before interrupt", repair.assistant_speaking_before_interrupt == null)}
+      ${assertRow(repair.correction_uptaken === true, "correction uptaken", repair.correction_uptaken == null)}
+      ${assertRow(repair.old_intent_committed === false, "old intent NOT committed", repair.old_intent_committed == null)}
+      ${assertRow(repair.forbidden_tool_called === false, "forbidden tool NOT called", repair.forbidden_tool_called == null)}
+      ${assertRow(repair.duplicate_final_commit === false, "no duplicate final commit", repair.duplicate_final_commit == null)}
+      ${assertRow(!H.earlyCommit(d.timeline || []), "no early commit (before gate)", false)}
+    </div>`;
+
+    const diffPanel = renderToolStateDiff(d);
+
+    const failurePanel = (d.failure_types && d.failure_types.length)
+      ? `<div class="panel"><h3>Failure Types</h3><div class="row">${d.failure_types
+          .map((f) => `<span class="chip fail">${esc(f)}</span>`).join("")}</div></div>`
+      : "";
+
+    const raw = `<details class="raw"><summary>Raw episode JSON</summary>
+      <pre class="code">${esc(JSON.stringify(d.raw || {}, null, 2))}</pre></details>`;
+
+    view.innerHTML =
+      `<button class="crumb" id="back-eps3">← Episodes</button>` +
+      header +
+      `<div class="two-col">${verdictPanel}${repairPanel}</div>` +
+      timeline +
+      `<div class="two-col">${contractPanel}${diffPanel}</div>` +
+      failurePanel +
+      raw;
+
+    document.getElementById("back-eps3").addEventListener("click", () =>
+      nav({ tab: "fdrc", view: "episodes", runId }));
+    setStatus(`fdrc / episode / ${episodeId}`, status.toUpperCase());
+  }
+
+  function assertRow(ok, text, na) {
+    const cls = na ? "na" : ok ? "ok" : "bad";
+    const mark = na ? "·" : ok ? "✓" : "✗";
+    return `<div class="assert ${cls}"><span class="mark">${mark}</span><span class="txt">${esc(text)}</span></div>`;
+  }
+
+  function intentText(intent) {
+    if (!intent) return "";
+    if (typeof intent === "string") return intent;
+    if (intent.tool) return `${intent.tool}(${argsText(intent.args)})`;
+    return JSON.stringify(intent);
+  }
+  function argsText(args) {
+    if (!args || typeof args !== "object") return "";
+    return Object.entries(args).map(([k, v]) => `${k}=${v}`).join(", ");
+  }
+  function summarizeCalls(calls) {
+    if (!calls || !calls.length) return "—";
+    return calls.map((c) => `${c.tool || c.name}(${argsText(c.args)})`).join("  ");
+  }
+
+  function renderToolStateDiff(d) {
+    const repair = d.repair || {};
+    const observed = (d.tool_calls || []).map((c) => ({ tool: c.tool, args: c.args }));
+    const expected = (d.contract && d.contract.expected_tool_calls) || [];
+    const stateDiff = d.state_diff || {};
+    const warnings = [];
+    if (repair.old_intent_committed) warnings.push("OLD_INTENT_COMMITTED");
+    if (repair.forbidden_tool_called) warnings.push("FORBIDDEN_TOOL_CALL");
+    if (repair.correction_uptaken === false) warnings.push("CORRECTION_NOT_UPTAKEN");
+    if (stateDiff.matches === false) warnings.push("FINAL_STATE_MISMATCH");
+
+    const warnHtml = warnings.length
+      ? `<div class="row" style="margin-bottom:12px">${warnings
+          .map((w) => `<span class="chip fail">${esc(w)}</span>`).join("")}</div>`
+      : `<div class="row" style="margin-bottom:12px"><span class="chip pass">no side-effect flags</span></div>`;
+
+    const obsBad = warnings.length > 0;
+    const stateBody = (stateDiff.diffs && stateDiff.diffs.length)
+      ? JSON.stringify(stateDiff.diffs, null, 2)
+      : JSON.stringify(d.summary && d.summary.final_intent ? { final_intent: d.summary.final_intent } : (d.raw && d.raw.final_state) || {}, null, 2);
+
+    return `<div class="panel"><h3>Tool / State Diff</h3>
+      ${warnHtml}
+      <div class="diff">
+        <div class="col"><h4>Expected tool</h4>
+          <pre class="code expected">${esc(expected.length ? JSON.stringify(expected, null, 2) : "—")}</pre></div>
+        <div class="col"><h4>Observed tool</h4>
+          <pre class="code ${obsBad ? "bad" : "observed"}">${esc(observed.length ? JSON.stringify(observed, null, 2) : "(none)")}</pre></div>
+      </div>
+      <div class="col" style="margin-top:12px"><h4>State diff</h4>
+        <pre class="code ${stateDiff.matches === false ? "bad" : "observed"}">${esc(stateBody)}</pre></div>
+    </div>`;
+  }
+
+  // ---- SVG timeline ----------------------------------------------
+  function renderTimeline(events, opts) {
+    const evs = (events || []).filter((e) => typeof e.t_ms === "number");
+    if (!evs.length) {
+      return `<div class="timeline-card">` +
+        stateBlock({ glyph: "⌁", title: "Không có timeline event", body: "Episode này thiếu voice_events có t_ms." }) +
+        `</div>`;
+    }
+
+    const W = 1040, padL = 96, padR = 24, top = 30, laneH = 50;
+    const lanes = [
+      { key: "user", label: "User" },
+      { key: "assistant", label: "Assistant" },
+      { key: "events", label: "Events" },
+      { key: "tool", label: "Tool / State" },
+    ];
+    const laneIndex = {}; lanes.forEach((l, i) => (laneIndex[l.key] = i));
+    const innerH = lanes.length * laneH;
+    const H_ = top + innerH + 26;
+    const duration = H.timelineDuration(evs);
+    const x = H.scaler(duration, padL, W - padR);
+    const laneY = (k) => top + laneIndex[k] * laneH;
+
+    let svg = `<svg class="tl-svg" viewBox="0 0 ${W} ${H_}" width="100%" preserveAspectRatio="xMinYMin meet" style="min-width:760px">`;
+
+    // lane backgrounds + labels
+    lanes.forEach((l, i) => {
+      svg += `<rect class="tl-lane-bg ${i % 2 ? "alt" : ""}" x="${padL}" y="${laneY(l.key)}" width="${W - padL - padR}" height="${laneH}"/>`;
+      svg += `<text class="tl-lane-label" x="${padL - 10}" y="${laneY(l.key) + laneH / 2 + 3}" text-anchor="end">${esc(l.label)}</text>`;
+    });
+
+    // axis grid + ticks
+    const step = duration > 8000 ? 2000 : duration > 4000 ? 1000 : 500;
+    for (let t = 0; t <= duration; t += step) {
+      const gx = x(t);
+      svg += `<line class="tl-grid" x1="${gx}" y1="${top}" x2="${gx}" y2="${top + innerH}"/>`;
+      svg += `<text class="tl-axis-tick" x="${gx}" y="${top - 8}" text-anchor="middle">${t}ms</text>`;
+    }
+
+    // repair window
+    const rw = H.repairWindow(evs);
+    if (rw) {
+      svg += `<rect class="tl-repair" x="${x(rw.start)}" y="${top}" width="${Math.max(2, x(rw.end) - x(rw.start))}" height="${innerH}"/>`;
+      svg += `<text class="tl-axis-tick" x="${x(rw.start) + 4}" y="${top + 11}" fill="var(--warn)">repair window</text>`;
+    }
+
+    // yield bracket
+    const interrupt = H.findEvent(evs, (e) => /interrupt/.test(e.event || ""));
+    const yielded = H.findEvent(evs, (e) => /yield/.test(e.event || "") && !/should_yield/.test(e.event || ""));
+    if (interrupt && yielded) {
+      const yy = laneY("events") + laneH - 8;
+      svg += `<line class="tl-threshold" x1="${x(interrupt.t_ms)}" y1="${yy}" x2="${x(yielded.t_ms)}" y2="${yy}"/>`;
+      svg += `<text class="tl-axis-tick" x="${(x(interrupt.t_ms) + x(yielded.t_ms)) / 2}" y="${yy - 4}" text-anchor="middle" fill="var(--pass)">yield ${H.fmtMs(opts && opts.yieldLatency != null ? opts.yieldLatency : yielded.t_ms - interrupt.t_ms)}</text>`;
+    }
+
+    const early = H.earlyCommit(evs);
+
+    // markers
+    evs.forEach((e) => {
+      const c = H.classifyEvent(e.event);
+      const ly = laneY(c.lane);
+      const cx = x(e.t_ms);
+      const isEarlyTool = c.cls === "tool" && early && (() => {
+        const gate = H.findEvent(evs, (g) => /allowed_after|repair_transcript_done/.test(g.event || ""));
+        return gate && e.t_ms < gate.t_ms;
+      })();
+      const cls = `tl-marker ${c.cls} ${e.source === "expected" ? "expected" : "observed"} ${isEarlyTool ? "early" : ""}`;
+      const dotColor = {
+        yield: "var(--pass)", interrupt: "var(--warn)", tool: isEarlyTool ? "var(--fail)" : "var(--mutate)",
+        expected: "var(--gray)", observed: "var(--observed)",
+      }[c.cls] || "var(--observed)";
+      const tip = `${e.event || ""} @ ${e.t_ms}ms${e.source ? " · " + e.source : ""}`;
+      svg += `<g class="${cls}"><title>${esc(tip)}</title>`;
+      svg += `<line x1="${cx}" y1="${ly + 12}" x2="${cx}" y2="${ly + laneH - 12}"/>`;
+      svg += `<circle class="tl-dot" cx="${cx}" cy="${ly + laneH / 2}" r="4" fill="${dotColor}"/>`;
+      // event short label
+      svg += `<text class="tl-label" x="${cx + 6}" y="${ly + 14}">${esc(shortEvent(e.event))}</text>`;
+      // utterance / tool text
+      const note = e.text || (e.tool ? `${e.tool}(${argsText(e.args)})` : "");
+      if (note) {
+        svg += `<text class="tl-utt" x="${cx + 6}" y="${ly + laneH - 8}">${esc(truncate(note, 34))}</text>`;
       }
-      renderDetail();
+      svg += `</g>`;
     });
-  }
-}
 
-bindEvents();
-loadRuns().catch((error) => {
-  setStatus("Lỗi");
-  $("detailBody").textContent = error.message;
-});
+    svg += `</svg>`;
+
+    const legend = `<div class="legend">
+      <span><i style="border-color:var(--observed)"></i>observed</span>
+      <span><i style="border-color:var(--gray);border-top-style:dashed"></i>expected</span>
+      <span><i style="border-color:var(--warn)"></i>interrupt</span>
+      <span><i style="border-color:var(--pass)"></i>yield</span>
+      <span><i style="border-color:var(--mutate)"></i>tool</span>
+      <span><i style="border-color:var(--fail)"></i>early commit</span>
+    </div>`;
+
+    return `<div class="timeline-card">
+      <div class="section-head"><h2>Full-Duplex Timeline</h2><span class="count">${evs.length} events</span></div>
+      ${legend}${svg}</div>`;
+  }
+
+  function shortEvent(name) {
+    return String(name || "")
+      .replace(/^assistant_/, "a_").replace(/^user_/, "u_")
+      .replace(/_start$/, "").replace(/_ms$/, "");
+  }
+  function truncate(s, n) { s = String(s); return s.length > n ? s.slice(0, n - 1) + "…" : s; }
+
+  // ================================================================
+  // VIEW: Leaderboard
+  // ================================================================
+  async function renderReserved() {
+    setStatus("leaderboard", "loading…");
+    let rows;
+    try {
+      rows = await getJSON(`/api/leaderboard?track=${FDRC}`);
+    } catch (e) {
+      view.innerHTML = stateBlock({ glyph: "⚠", title: "Không tải được leaderboard", body: esc(e.message), error: true });
+      return;
+    }
+    if (!rows.length) {
+      view.innerHTML = stateBlock({ glyph: "∅", title: "Chưa có run FDRC nào", body: "Chạy run_fdrc với --agent rồi quay lại." });
+      return;
+    }
+    const head = ["Model", "Provider", "Yield", "Episodes", "Status", "Validity", "Pass@1", "Yield p50", "Yield p95", "Forbidden", "Cancel"];
+    const body = rows.map((raw) => {
+      const r = H.leaderboardRow(raw);
+      return `<tr class="${r.reportable ? "" : "muted"}">
+        <td><b>${esc(r.model)}</b><div class="sub">${esc(r.run_id)}</div></td>
+        <td>${esc(r.provider)}</td>
+        <td>${esc(r.yield_mode)}</td>
+        <td class="cell-num">${esc(r.episodes)}</td>
+        <td>${esc(r.reportability_status)}</td>
+        <td class="cell-num">${esc(r.validityCell)}</td>
+        <td class="cell-num">${esc(r.passCell)}</td>
+        <td class="cell-num">${esc(r.yieldP50)}</td>
+        <td class="cell-num">${esc(r.yieldP95)}</td>
+        <td class="cell-num">${esc(r.forbiddenCell)}</td>
+        <td class="cell-num">${esc(r.cancelCell)}</td>
+      </tr>`;
+    }).join("");
+    view.innerHTML = `<section class="panel"><h2>FDRC Leaderboard</h2>
+      <table class="lb"><thead><tr>${head.map((h) => `<th>${esc(h)}</th>`).join("")}</tr></thead>
+      <tbody>${body}</tbody></table></section>`;
+    setStatus("leaderboard", `${rows.length} runs`);
+  }
+
+  // ---- router -----------------------------------------------------
+  let _route = { tab: "fdrc", view: "overview" };
+  function currentRoute() { return _route; }
+
+  function setActiveTab(tab) {
+    tabsEl.querySelectorAll(".tab").forEach((b) =>
+      b.setAttribute("aria-current", b.dataset.tab === tab ? "true" : "false")
+    );
+  }
+
+  function route() {
+    const r = H.parseRoute(location.hash);
+    _route = r;
+    setActiveTab(r.tab);
+    if (r.tab === "lab") return renderReserved();
+    if (r.view === "episode") return renderEpisodeDetail(r);
+    if (r.view === "episodes") return renderEpisodes(r);
+    return renderOverview(r);
+  }
+
+  tabsEl.querySelectorAll(".tab").forEach((b) =>
+    b.addEventListener("click", () => nav({ tab: b.dataset.tab }))
+  );
+
+  window.addEventListener("hashchange", route);
+  route();
+})();

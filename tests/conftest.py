@@ -2,10 +2,23 @@ from typing import Callable
 
 import pytest
 
-from tau2.data_model.tasks import Task
-from tau2.environment.environment import Environment
-from tau2.registry import registry
-from tau2.run import get_tasks
+# The legacy tau2-bench fixtures below require the `tau2` package, which is not
+# vendored in this repo. Import it lazily so that collecting non-tau2 tests
+# (dashboard, FDRC, adapters) does not crash the whole suite. The tau2 fixtures
+# raise a skip if used without the package installed.
+try:  # pragma: no cover - environment dependent
+    from tau2.data_model.tasks import Task
+    from tau2.environment.environment import Environment
+    from tau2.registry import registry
+    from tau2.run import get_tasks
+
+    _TAU2_AVAILABLE = True
+except ModuleNotFoundError:  # pragma: no cover - environment dependent
+    _TAU2_AVAILABLE = False
+    Task = object  # type: ignore[assignment,misc]
+    Environment = object  # type: ignore[assignment,misc]
+    registry = None  # type: ignore[assignment]
+    get_tasks = None  # type: ignore[assignment]
 
 
 @pytest.fixture

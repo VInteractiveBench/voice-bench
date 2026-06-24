@@ -13,6 +13,10 @@ class NormalizedEvent(TypedDict, total=False):
     call_id: str
     result: dict
     error: str
+    chunk_id: str
+    duration_ms: int
+    source_type: str
+    overlap: bool
 
 
 class ViviAgentAdapter(ABC):
@@ -42,6 +46,10 @@ class ViviAgentAdapter(ABC):
         Default no-op. Text adapters drive responses inside `send_text`; only the
         realtime adapter, which streams raw audio chunks, needs an explicit commit.
         """
+        return None
+
+    async def cancel_response(self) -> None:
+        """Ask the provider to stop the active assistant response if supported."""
         return None
 
     @abstractmethod

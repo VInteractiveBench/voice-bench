@@ -16,6 +16,52 @@ def tool_call_matches(expected: dict, actual: dict) -> bool:
     )
 
 
+def state_diff(expected: Any, actual: Any) -> dict:
+    diffs: list[dict] = []
+
+    def walk(wanted: Any, observed: Any, path: str) -> None:
+        if isinstance(wanted, dict):
+            if not isinstance(observed, dict):
+                diffs.append(
+                    {
+                        "path": path or "$",
+                        "expected": wanted,
+                        "observed": observed,
+                        "reason": "type_mismatch",
+                        "severity": "critical",
+                    }
+                )
+                return
+            for key, value in wanted.items():
+                child_path = f"{path}.{key}" if path else key
+                if key not in observed:
+                    diffs.append(
+                        {
+                            "path": child_path,
+                            "expected": value,
+                            "observed": None,
+                            "reason": "missing",
+                            "severity": "critical",
+                        }
+                    )
+                else:
+                    walk(value, observed[key], child_path)
+            return
+        if wanted != observed:
+            diffs.append(
+                {
+                    "path": path or "$",
+                    "expected": wanted,
+                    "observed": observed,
+                    "reason": "value_mismatch",
+                    "severity": "critical",
+                }
+            )
+
+    walk(expected, actual, "")
+    return {"matches": not diffs, "diffs": diffs}
+
+
 def evaluate_common(episode: dict, task: dict, expected_calls: list[dict] | None = None) -> dict:
     result = deepcopy(episode)
     if "voice_events" not in result and "normalized_events" in result:
@@ -44,7 +90,10 @@ def evaluate_common(episode: dict, task: dict, expected_calls: list[dict] | None
         tool_call_matches(wanted, call) for wanted, call in zip(expected, calls)
     )
     argument_exact = tool_exact
-    state_match = deep_subset(task.get("expected_final_state", {}), result.get("final_state", {}))
+    final_state_diff = state_diff(
+        task.get("expected_final_state", {}), result.get("final_state", {})
+    )
+    state_match = final_state_diff["matches"]
     communication_present = (not task.get("required_communication", True)) or bool(
         result.get("assistant_transcript")
     )
@@ -71,6 +120,7 @@ def evaluate_common(episode: dict, task: dict, expected_calls: list[dict] | None
     result["validation_errors"] = validation_errors
     result["failure_types"] = failures
     result["primary_failure_type"] = primary_failure(failures)
+    result["state_diff"] = final_state_diff
     result["scores"] = {
         "task_pass": int(tool_exact and state_match and execution_success),
         "policy_pass": int(not result.get("policy_violations") and not validation_errors),

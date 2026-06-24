@@ -47,6 +47,13 @@ def _score_rate(rows: list[dict[str, Any]], score_key: str) -> float | None:
     return _rate(scored, lambda row: bool(row.get("scores", {}).get(score_key)))
 
 
+def _cancel_respected(episode: dict[str, Any]) -> bool:
+    repair = episode.get("repair", {})
+    if "cancel_respected" in repair:
+        return bool(repair.get("cancel_respected"))
+    return not bool(repair.get("forbidden_tool_called")) and not bool(episode.get("tool_calls"))
+
+
 def _percentile(values: list[int | float], percentile: float) -> float | None:
     if not values:
         return None
@@ -117,7 +124,7 @@ def summarize_fdrc_contract(episodes: list[dict[str, Any]]) -> dict[str, Any]:
         ),
         "cancel_success_rate": _rate(
             cancel_rows,
-            lambda episode: not bool(episode.get("repair", {}).get("forbidden_tool_called")),
+            _cancel_respected,
         ),
     }
     denominators = {

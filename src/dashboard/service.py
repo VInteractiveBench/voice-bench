@@ -10,9 +10,9 @@ from pathlib import Path
 from typing import Any
 
 from src.io import load_base_tasks, load_overlays
-from src.evaluator.fdrc_evaluator import evaluate_fdrc_episode
+from src.evaluator.fdrc_evaluator import evaluate_fdrc_episode, summarize_fdrc
 from src.evaluator.fdrc_contract import summarize_fdrc_contract
-from src.evaluator.retention_evaluator import evaluate_retention_episode
+from src.evaluator.retention_evaluator import evaluate_retention_episode, summarize_retention
 from src.runner import episode_set_hash
 
 
@@ -87,6 +87,142 @@ TRACK_DESCRIPTIONS = {
         "Đo khả năng nhường lời khi user chen ngang, tiếp nhận lệnh sửa/hủy, "
         "chặn ý định cũ và chỉ commit ý định cuối cùng."
     ),
+}
+
+METRIC_GROUPS = [
+    {
+        "id": "overview",
+        "label": "Overview",
+        "metric_keys": [
+            "pass_at_1",
+            "episode_count",
+            "completed_episode_count",
+            "partial_episode_count",
+        ],
+    },
+    {
+        "id": "tool_state",
+        "label": "Tool / State",
+        "metric_keys": [
+            "tool_exact_match",
+            "argument_exact_match",
+            "state_match",
+            "tool_validation_error_rate",
+            "out_of_scope_tool_call_rate",
+            "hallucinated_tool_rate",
+        ],
+    },
+    {"id": "policy", "label": "Policy", "metric_keys": ["policy_violation_rate"]},
+    {
+        "id": "retention",
+        "label": "Text-to-Voice Retention",
+        "metric_keys": [
+            "text_pass_at_1",
+            "clean_voice_pass_at_1",
+            "cabin_voice_pass_at_1",
+            "clean_voice_retention",
+            "voice_capability_retention",
+            "voice_degradation_gap",
+            "critical_slot_accuracy",
+            "complete_pair_count",
+            "incomplete_pair_count",
+            "accent_gap",
+            "speed_gap",
+        ],
+    },
+    {
+        "id": "retention_degradation",
+        "label": "Retention Degradation",
+        "metric_keys": ["degradation_by_component.*"],
+    },
+    {
+        "id": "fdrc",
+        "label": "Full-Duplex Repair-to-Commit",
+        "metric_keys": [
+            "performance_fdrc_pass_at_1",
+            "fdrc_validity_rate",
+            "raw_fdrc_pass_at_1",
+            "fdrc_pass_at_1",
+            "valid_episode_count",
+            "invalid_episode_count",
+            "validity_failure_counts",
+            "correction_uptake_rate",
+            "old_intent_suppression_rate",
+            "forbidden_tool_call_rate",
+            "cancel_success_rate",
+            "yield_latency_pass_rate",
+        ],
+    },
+    {
+        "id": "latency",
+        "label": "Latency",
+        "metric_keys": [
+            "yield_latency_p50_ms",
+            "yield_latency_p95_ms",
+            "performance_yield_latency_p50_ms",
+            "performance_yield_latency_p95_ms",
+            "performance_yield_latency_pass_rate",
+            "latency_summary.*",
+        ],
+    },
+    {
+        "id": "contract",
+        "label": "Contract / Data Quality",
+        "metric_keys": [
+            "metric_contract.benchmark_status",
+            "metric_contract.violations",
+            "metric_contract.null_reasons",
+            "metrics_hash_valid",
+            "parse_errors",
+        ],
+    },
+]
+
+METRIC_REGISTRY = {
+    "pass_at_1": ("Pass tổng", "Tỷ lệ episode pass toàn bộ tiêu chí.", "rate", "overview"),
+    "episode_count": ("Số episode", "Tổng số episode trong run đang xem.", "count", "overview"),
+    "completed_episode_count": ("Episode hoàn tất", "Số episode có score hợp lệ.", "count", "overview"),
+    "partial_episode_count": ("Episode thiếu dữ liệu", "Số episode chưa đủ dữ liệu để tính metric hoàn chỉnh.", "count", "overview"),
+    "tool_exact_match": ("Khớp tool", "Tỷ lệ episode gọi đúng chuỗi tool expected.", "rate", "tool_state"),
+    "argument_exact_match": ("Khớp argument", "Tỷ lệ episode truyền đúng argument tool expected.", "rate", "tool_state"),
+    "state_match": ("Khớp trạng thái", "Tỷ lệ episode có final state khớp expected.", "rate", "tool_state"),
+    "tool_validation_error_rate": ("Lỗi validation tool", "Tỷ lệ episode có lỗi schema, argument hoặc contract tool.", "rate", "tool_state"),
+    "out_of_scope_tool_call_rate": ("Tool ngoài phạm vi", "Tỷ lệ episode gọi official tool ngoài MVP scope.", "rate", "tool_state"),
+    "hallucinated_tool_rate": ("Tool không whitelist", "Tỷ lệ episode gọi tool không nằm trong whitelist.", "rate", "tool_state"),
+    "policy_violation_rate": ("Vi phạm policy", "Tỷ lệ episode vi phạm policy benchmark.", "rate", "policy"),
+    "text_pass_at_1": ("Pass text baseline", "Tỷ lệ pass của các episode text baseline.", "rate", "retention"),
+    "clean_voice_pass_at_1": ("Pass voice sạch", "Tỷ lệ pass khi input là giọng nói sạch.", "rate", "retention"),
+    "cabin_voice_pass_at_1": ("Pass voice cabin", "Tỷ lệ pass khi input là giọng nói có nhiễu cabin.", "rate", "retention"),
+    "clean_voice_retention": ("Giữ năng lực voice sạch", "clean_voice_pass_at_1 / text_pass_at_1.", "rate", "retention"),
+    "voice_capability_retention": ("Giữ năng lực voice cabin", "cabin_voice_pass_at_1 / text_pass_at_1.", "rate", "retention"),
+    "voice_degradation_gap": ("Khoảng suy giảm voice", "text_pass_at_1 - cabin_voice_pass_at_1.", "rate", "retention"),
+    "critical_slot_accuracy": ("Đúng critical slot", "Tỷ lệ slot quan trọng được giữ đúng.", "rate", "retention"),
+    "complete_pair_count": ("Cặp retention đủ", "Số cặp task có đủ text, clean voice và cabin voice.", "count", "retention"),
+    "incomplete_pair_count": ("Cặp retention thiếu", "Số cặp task thiếu ít nhất một mode retention.", "count", "retention"),
+    "accent_gap": ("Chênh lệch vùng giọng", "Khoảng cách pass rate lớn nhất giữa các accent region.", "rate", "retention"),
+    "speed_gap": ("Chênh lệch tốc độ nói", "Khoảng cách pass rate lớn nhất giữa các speech speed.", "rate", "retention"),
+    "fdrc_pass_at_1": ("Pass FDRC", "Tỷ lệ episode FDRC pass toàn bộ tiêu chí.", "rate", "fdrc"),
+    "performance_fdrc_pass_at_1": ("Pass FDRC performance", "Pass rate chỉ tính trên episode FDRC hợp lệ.", "rate", "fdrc"),
+    "raw_fdrc_pass_at_1": ("Pass FDRC raw", "Pass rate trên toàn bộ episode, giữ để forensic.", "rate", "fdrc"),
+    "fdrc_validity_rate": ("Validity FDRC", "Tỷ lệ episode có đủ evidence để chấm performance.", "rate", "fdrc"),
+    "valid_episode_count": ("Episode hợp lệ", "Số episode FDRC đủ evidence để tính performance.", "count", "fdrc"),
+    "invalid_episode_count": ("Episode invalid", "Số episode FDRC thiếu evidence hoặc transcript/tool/state hợp lệ.", "count", "fdrc"),
+    "validity_failure_counts": ("Lý do invalid", "Danh sách lý do khiến episode không đủ điều kiện performance.", "count", "fdrc"),
+    "correction_uptake_rate": ("Tiếp nhận sửa", "Tỷ lệ episode tiếp nhận đúng final repair intent.", "rate", "fdrc"),
+    "old_intent_suppression_rate": ("Chặn ý định cũ", "Tỷ lệ episode không commit ý định cũ.", "rate", "fdrc"),
+    "forbidden_tool_call_rate": ("Gọi tool bị cấm", "Tỷ lệ episode có forbidden tool call.", "rate", "fdrc"),
+    "cancel_success_rate": ("Cancel thành công", "Tỷ lệ cancel case không tạo side effect bị cấm.", "rate", "fdrc"),
+    "yield_latency_pass_rate": ("Pass latency", "Tỷ lệ episode có yield latency trong ngưỡng cho phép.", "rate", "fdrc"),
+    "yield_latency_p50_ms": ("P50 nhường lời", "Trung vị độ trễ nhường lời sau khi user chen ngang.", "ms", "latency"),
+    "yield_latency_p95_ms": ("P95 nhường lời", "Phân vị 95 của độ trễ nhường lời.", "ms", "latency"),
+    "performance_yield_latency_p50_ms": ("P50 yield performance", "P50 yield latency chỉ trên episode hợp lệ.", "ms", "latency"),
+    "performance_yield_latency_p95_ms": ("P95 yield performance", "P95 yield latency chỉ trên episode hợp lệ.", "ms", "latency"),
+    "performance_yield_latency_pass_rate": ("Yield pass performance", "Yield pass rate chỉ trên episode hợp lệ.", "rate", "latency"),
+    "metric_contract.benchmark_status": ("Trạng thái contract", "Trạng thái hợp lệ của metric contract.", "text", "contract"),
+    "metric_contract.violations": ("Vi phạm contract", "Số metric bắt buộc bị thiếu hoặc không hợp lệ.", "count", "contract"),
+    "metric_contract.null_reasons": ("Metric nullable rỗng", "Số metric nullable đang không có mẫu hợp lệ.", "count", "contract"),
+    "metrics_hash_valid": ("Hash metrics hợp lệ", "metrics.json có khớp episode_set_hash của episode set đang xem không.", "boolean", "contract"),
+    "parse_errors": ("Lỗi đọc dữ liệu", "Số lỗi parse khi đọc metrics.json hoặc episodes.jsonl.", "count", "contract"),
 }
 
 
@@ -297,10 +433,13 @@ def _summarize_from_episodes(
     }
     tracks = set(_values(episodes, "benchmark_track"))
     if RETENTION_TRACK in tracks:
+        retention_rows = [
+            episode for episode in episodes if episode.get("benchmark_track") == RETENTION_TRACK
+        ]
+        metrics.update(summarize_retention(retention_rows))
         by_mode: dict[str, list[dict[str, Any]]] = defaultdict(list)
-        for episode in episodes:
-            if episode.get("benchmark_track") == RETENTION_TRACK:
-                by_mode[str(episode.get("mode"))].append(episode)
+        for episode in retention_rows:
+            by_mode[str(episode.get("mode"))].append(episode)
         text = _mode_pass_rate(by_mode.get("text_baseline", []))
         clean = _mode_pass_rate(by_mode.get("clean_voice", []))
         cabin = _mode_pass_rate(by_mode.get("realistic_cabin_voice", []))
@@ -337,7 +476,7 @@ def _summarize_from_episodes(
         fdrc_rows = [
             episode for episode in episodes if episode.get("benchmark_track") == FDRC_TRACK
         ]
-        metrics.update(summarize_fdrc_contract(fdrc_rows))
+        metrics.update(summarize_fdrc(fdrc_rows))
     return metrics
 
 
@@ -397,8 +536,14 @@ def _fdrc_voice_events_for_evaluation(
         ),
         None,
     )
-    repair_transcript = _first_event_time_after(normalized, "user_transcript_done", interrupt)
-    if repair_transcript is not None:
+    repair_transcript = _first_event_time_after(normalized, "repair_transcript_done", interrupt)
+    if repair_transcript is None:
+        repair_transcript = _first_event_time_after(normalized, "user_transcript_done", interrupt)
+    if repair_transcript is not None and not any(
+        event.get("event") == "repair_transcript_done"
+        and event.get("source") == "observed"
+        for event in events
+    ):
         events.append(
             {
                 "event": "repair_transcript_done",
@@ -530,6 +675,172 @@ def _top_latency_episodes(
     return sorted(rows, key=lambda row: row["value"], reverse=True)[:limit]
 
 
+def _metric_meta(key: str) -> tuple[str, str, str, str]:
+    if key in METRIC_REGISTRY:
+        return METRIC_REGISTRY[key]
+    if key.startswith("degradation_by_component."):
+        parts = key.split(".")
+        mode = parts[1] if len(parts) > 1 else "unknown"
+        component = parts[2] if len(parts) > 2 else "unknown"
+        return (
+            f"{mode} {component}",
+            "Mức suy giảm giữa text baseline và voice mode theo từng thành phần.",
+            "rate",
+            "retention_degradation",
+        )
+    if key.startswith("latency_summary."):
+        parts = key.split(".")
+        metric = parts[1] if len(parts) > 1 else "latency"
+        statistic = parts[2] if len(parts) > 2 else "value"
+        unit = "count" if statistic == "count" else "ms"
+        return (
+            f"{metric} {statistic}",
+            "Thống kê phân phối latency được derive từ episode logs.",
+            unit,
+            "latency",
+        )
+    return (key, "Metric được trả về từ evaluator hoặc dashboard derivation.", "number", "overview")
+
+
+def _flatten_metrics(metrics: dict[str, Any], latency_summary: list[dict[str, Any]]) -> dict[str, Any]:
+    flat: dict[str, Any] = {
+        key: value
+        for key, value in metrics.items()
+        if key not in {"degradation_by_component", "metric_contract", "run_metadata"}
+        and not isinstance(value, (dict, list))
+    }
+    degradation = metrics.get("degradation_by_component")
+    if isinstance(degradation, dict):
+        for mode, values in degradation.items():
+            if not isinstance(values, dict):
+                continue
+            for component, value in values.items():
+                flat[f"degradation_by_component.{mode}.{component}"] = value
+    contract = metrics.get("metric_contract")
+    if isinstance(contract, dict):
+        flat["metric_contract.benchmark_status"] = contract.get("benchmark_status")
+        flat["metric_contract.violations"] = len(contract.get("violations") or [])
+        flat["metric_contract.null_reasons"] = len(contract.get("null_reasons") or {})
+    if isinstance(metrics.get("validity_failure_counts"), list):
+        flat["validity_failure_counts"] = sum(
+            int(row.get("count", 0))
+            for row in metrics["validity_failure_counts"]
+            if isinstance(row, dict)
+        )
+    for row in latency_summary:
+        metric = row.get("metric")
+        if not metric:
+            continue
+        for statistic in ("count", "min_ms", "p50_ms", "p95_ms", "max_ms"):
+            flat[f"latency_summary.{metric}.{statistic}"] = row.get(statistic)
+    return flat
+
+
+def _metric_group_applies(group_id: str, selected_track: str | None) -> bool:
+    retention_only = {"retention", "retention_degradation"}
+    fdrc_only = {"fdrc"}
+    if selected_track == RETENTION_TRACK and group_id in fdrc_only:
+        return False
+    if selected_track == FDRC_TRACK and group_id in retention_only:
+        return False
+    return True
+
+
+def _catalog_keys(flat_metrics: dict[str, Any], selected_track: str | None) -> list[str]:
+    ordered: list[str] = []
+    for group in METRIC_GROUPS:
+        if not _metric_group_applies(group["id"], selected_track):
+            continue
+        for key in group["metric_keys"]:
+            if key.endswith(".*"):
+                prefix = key[:-1]
+                ordered.extend(sorted(item for item in flat_metrics if item.startswith(prefix)))
+            elif key not in ordered:
+                ordered.append(key)
+    for key in sorted(flat_metrics):
+        if key not in ordered and not isinstance(flat_metrics.get(key), (dict, list)):
+            ordered.append(key)
+    return ordered
+
+
+def _metric_status(key: str, value: Any, nullable: bool, contract_violations: set[str]) -> str:
+    if key in contract_violations:
+        return "invalid"
+    if value is None:
+        return "nullable_null" if nullable else "missing"
+    return "ok"
+
+
+def _build_metric_catalog(
+    metrics: dict[str, Any],
+    *,
+    selected_track: str | None,
+    metric_source: str,
+    metrics_hash_valid: bool,
+    parse_errors: list[dict[str, Any]],
+    latency_summary: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    contract = metrics.get("metric_contract") if isinstance(metrics.get("metric_contract"), dict) else {}
+    denominators = contract.get("denominators", {}) if isinstance(contract, dict) else {}
+    null_reasons = contract.get("null_reasons", {}) if isinstance(contract, dict) else {}
+    nullable_metrics = contract.get("nullable_metrics", {}) if isinstance(contract, dict) else {}
+    violations = {
+        str(row.get("metric"))
+        for row in (contract.get("violations", []) if isinstance(contract, dict) else [])
+        if isinstance(row, dict) and row.get("metric")
+    }
+    flat_metrics = _flatten_metrics(metrics, latency_summary)
+    flat_metrics["metrics_hash_valid"] = metrics_hash_valid
+    flat_metrics["parse_errors"] = len(parse_errors)
+    catalog = []
+    for key in _catalog_keys(flat_metrics, selected_track):
+        value = flat_metrics.get(key)
+        label, description, unit, group = _metric_meta(key)
+        base_key = key.split(".", 1)[0]
+        nullable = key in nullable_metrics or base_key in nullable_metrics
+        reason_payload = null_reasons.get(key) or null_reasons.get(base_key)
+        null_reason = (
+            reason_payload.get("null_reason")
+            if isinstance(reason_payload, dict)
+            else reason_payload
+        )
+        denominator_payload = (
+            denominators.get(key)
+            if key in denominators
+            else denominators.get(base_key)
+        )
+        catalog.append(
+            {
+                "key": key,
+                "label": label,
+                "description": description,
+                "value": value,
+                "unit": unit,
+                "group": group,
+                "track": selected_track,
+                "source": metric_source,
+                "denominator": denominator_payload,
+                "nullable": nullable,
+                "null_reason": null_reason,
+                "status": _metric_status(key, value, nullable, violations),
+            }
+        )
+    present = {row["key"] for row in catalog}
+    groups = []
+    for group in METRIC_GROUPS:
+        if not _metric_group_applies(group["id"], selected_track):
+            continue
+        keys = []
+        for key in group["metric_keys"]:
+            if key.endswith(".*"):
+                keys.extend(sorted(item for item in present if item.startswith(key[:-1])))
+            elif key in present:
+                keys.append(key)
+        if keys:
+            groups.append({"id": group["id"], "label": group["label"], "metric_keys": keys})
+    return catalog, groups
+
+
 def _episode_row(episode: dict[str, Any]) -> dict[str, Any]:
     failures = [str(failure) for failure in (episode.get("failure_types", []) or [])]
     latency = episode.get("latency", {}) if isinstance(episode.get("latency"), dict) else {}
@@ -540,6 +851,11 @@ def _episode_row(episode: dict[str, Any]) -> dict[str, Any]:
         else {}
     )
     repair = episode.get("repair") if isinstance(episode.get("repair"), dict) else {}
+    validity = (
+        episode.get("fdrc_validity")
+        if isinstance(episode.get("fdrc_validity"), dict)
+        else {}
+    )
     tool_names = [
         str(call.get("tool"))
         for call in episode.get("tool_calls", []) or []
@@ -575,7 +891,11 @@ def _episode_row(episode: dict[str, Any]) -> dict[str, Any]:
         "old_intent_committed": repair.get("old_intent_committed"),
         "forbidden_tool_called": repair.get("forbidden_tool_called"),
         "duplicate_final_commit": repair.get("duplicate_final_commit"),
+        "tool_commit_time_ms": repair.get("tool_commit_time_ms"),
         "final_intent": repair.get("final_intent"),
+        "fdrc_valid": validity.get("valid"),
+        "fdrc_validity_status": validity.get("status"),
+        "fdrc_invalid_reasons": validity.get("reasons", []),
     }
 
 
@@ -702,17 +1022,53 @@ class DashboardStore:
             )
         return sorted(runs, key=lambda row: row.get("updated_at") or "", reverse=True)
 
+    def leaderboard(self, track: str = "full_duplex_repair_to_commit") -> list[dict[str, Any]]:
+        rows = []
+        for run in self.list_runs():
+            if run.get("benchmark_track") != track:
+                continue
+            summary = self.run_summary(run["run_id"], track=track)
+            metrics = summary.get("metrics", {})
+            meta = summary.get("run_metadata", {}) or {}
+            rows.append({
+                "run_id": run["run_id"],
+                "provider": (meta.get("providers") or [None])[0],
+                "model": (meta.get("models") or [None])[0],
+                "yield_mode": (meta.get("fdrc_yield_modes") or [None])[0],
+                "run_kind": run.get("run_kind"),
+                "data_provenance": run.get("data_provenance"),
+                "episode_count": summary.get("episode_count"),
+                "updated_at": run.get("updated_at"),
+                "reportability_status": metrics.get("reportability_status"),
+                "fdrc_validity_rate": metrics.get("fdrc_validity_rate"),
+                "raw_fdrc_pass_at_1": metrics.get("raw_fdrc_pass_at_1"),
+                "performance_fdrc_pass_at_1": metrics.get("performance_fdrc_pass_at_1"),
+                "performance_yield_latency_p50_ms": metrics.get("performance_yield_latency_p50_ms"),
+                "performance_yield_latency_p95_ms": metrics.get("performance_yield_latency_p95_ms"),
+                "performance_yield_latency_pass_rate": metrics.get("performance_yield_latency_pass_rate"),
+                "forbidden_tool_call_rate": metrics.get("forbidden_tool_call_rate"),
+                "cancel_success_rate": metrics.get("cancel_success_rate"),
+                "correction_uptake_rate": metrics.get("correction_uptake_rate"),
+                "old_intent_suppression_rate": metrics.get("old_intent_suppression_rate"),
+            })
+        return rows
+
     def run_summary(self, run_id: str, track: str | None = None) -> dict[str, Any]:
-        path, metrics, episodes, errors = self._load_run(run_id)
-        episodes = _evaluation_view(episodes)
-        selected_track = track or _dominant_track(episodes)
+        path, metrics, raw_episodes, errors = self._load_run(run_id)
+        selected_track = track or _dominant_track(raw_episodes)
+        raw_scoped_episodes = [
+            episode
+            for episode in raw_episodes
+            if not selected_track or episode.get("benchmark_track") == selected_track
+        ]
+        episodes = _evaluation_view(raw_episodes)
         scoped_episodes = [
             episode
             for episode in episodes
             if not selected_track or episode.get("benchmark_track") == selected_track
         ]
         derived_metrics = _summarize_from_episodes(scoped_episodes, selected_track)
-        expected_hash = episode_set_hash(scoped_episodes)
+        expected_hash = episode_set_hash(raw_scoped_episodes)
         metrics_hash = metrics.get("episode_set_hash")
         metrics_valid = bool(metrics) and metrics_hash == expected_hash
         metric_errors = []
@@ -726,6 +1082,7 @@ class DashboardStore:
             )
         errors = [*errors, *metric_errors]
         display_metrics = {**derived_metrics, **metrics} if metrics_valid else derived_metrics
+        metric_source = "metrics.json" if metrics_valid else "episodes.jsonl"
         contract_status = (
             display_metrics.get("metric_contract", {}).get("benchmark_status")
             if isinstance(display_metrics.get("metric_contract"), dict)
@@ -738,6 +1095,23 @@ class DashboardStore:
         failed = sum(1 for episode in scoped_episodes if _score_pass(episode) is False)
         unscored = len(scoped_episodes) - passed - failed
         provenance = _data_provenance(path.name, episodes)
+        latency_distribution = _latency_distribution(scoped_episodes)
+        latency_summary = _latency_summary(scoped_episodes)
+        top_yield_latency = _top_latency_episodes(scoped_episodes, "yield_latency_ms")
+        top_response_latency = _top_latency_episodes(scoped_episodes, "response_latency_ms")
+        metric_catalog, metric_groups = _build_metric_catalog(
+            display_metrics,
+            selected_track=selected_track,
+            metric_source=metric_source,
+            metrics_hash_valid=metrics_valid,
+            parse_errors=errors,
+            latency_summary=latency_summary,
+        )
+        metric_contract = (
+            display_metrics.get("metric_contract")
+            if isinstance(display_metrics.get("metric_contract"), dict)
+            else {}
+        )
         return {
             "run_id": path.name,
             "status": summary_status,
@@ -750,11 +1124,21 @@ class DashboardStore:
             "provenance_warning": _provenance_warning(provenance),
             "metrics": display_metrics,
             "derived_metrics": derived_metrics,
-            "metric_source": "metrics.json" if metrics_valid else "episodes.jsonl",
+            "metric_catalog": metric_catalog,
+            "metric_groups": metric_groups,
+            "metric_contract": metric_contract,
+            "null_reasons": metric_contract.get("null_reasons", {}),
+            "denominators": metric_contract.get("denominators", {}),
+            "metric_source": metric_source,
             "metrics_hash_valid": metrics_valid,
             "episode_count": len(scoped_episodes),
             "parse_errors": errors,
             "metadata": _metadata(scoped_episodes),
+            "run_metadata": (
+                metrics.get("run_metadata")
+                if isinstance(metrics.get("run_metadata"), dict)
+                else {}
+            ),
             "pass_fail": {"passed": passed, "failed": failed, "unscored": unscored},
             "pass_by_domain": _group_pass_rate(scoped_episodes, "domain"),
             "pass_by_mode": _group_pass_rate(scoped_episodes, "mode"),
@@ -764,14 +1148,10 @@ class DashboardStore:
             "pass_by_audio_condition": _group_pass_rate(scoped_episodes, "audio_condition_id"),
             "primary_failure_counts": _failure_counts(scoped_episodes, primary=True),
             "failure_counts": _failure_counts(scoped_episodes),
-            "latency_distribution": _latency_distribution(scoped_episodes),
-            "latency_summary": _latency_summary(scoped_episodes),
-            "top_yield_latency_episodes": _top_latency_episodes(
-                scoped_episodes, "yield_latency_ms"
-            ),
-            "top_response_latency_episodes": _top_latency_episodes(
-                scoped_episodes, "response_latency_ms"
-            ),
+            "latency_distribution": latency_distribution,
+            "latency_summary": latency_summary,
+            "top_yield_latency_episodes": top_yield_latency,
+            "top_response_latency_episodes": top_response_latency,
         }
 
     def list_episodes(
@@ -783,6 +1163,7 @@ class DashboardStore:
         mode: str | None = None,
         failure: str | None = None,
         passed: bool | None = None,
+        validity: str | None = None,
     ) -> dict[str, Any]:
         _, _, episodes, errors = self._load_run(run_id)
         episodes = _evaluation_view(episodes)
@@ -800,6 +1181,22 @@ class DashboardStore:
                 if failure in (episode.get("failure_types") or [])
                 or episode.get("primary_failure_type") == failure
             ]
+        if validity:
+            wanted = validity.casefold()
+            filtered = [
+                episode
+                for episode in filtered
+                if (
+                    (
+                        wanted == "valid"
+                        and episode.get("fdrc_validity", {}).get("valid") is True
+                    )
+                    or (
+                        wanted == "invalid"
+                        and episode.get("fdrc_validity", {}).get("valid") is False
+                    )
+                )
+            ]
         if passed is not None:
             filtered = [episode for episode in filtered if _score_pass(episode) is passed]
         return {
@@ -812,13 +1209,38 @@ class DashboardStore:
 
     def episode_detail(self, run_id: str, episode_id: str) -> dict[str, Any] | None:
         _, _, episodes, errors = self._load_run(run_id)
+        tasks = load_base_tasks()
+        overlays = {row["speech_overlay_id"]: row for row in load_overlays()}
         episodes = _evaluation_view(episodes)
         for episode in episodes:
             if str(episode.get("episode_id")) == episode_id:
+                overlay = overlays.get(episode.get("speech_overlay_id"), {})
+                task = tasks.get(episode.get("base_task_id"), {})
+                expected_tool_calls = overlay.get(
+                    "expected_tool_calls", task.get("expected_tool_calls", [])
+                )
+                expected_final_state = overlay.get(
+                    "expected_final_state", task.get("expected_final_state", {})
+                )
                 return {
                     "run_id": run_id,
                     "parse_errors": errors,
                     "summary": _episode_row(episode),
+                    "contract": {
+                        "base_task_id": episode.get("base_task_id"),
+                        "speech_overlay_id": episode.get("speech_overlay_id"),
+                        "task_description": task.get("description"),
+                        "initial_spoken_utterance": overlay.get("initial_spoken_utterance")
+                        or overlay.get("spoken_utterance"),
+                        "repair_utterance": overlay.get("repair_utterance"),
+                        "initial_intent": overlay.get("initial_intent"),
+                        "final_intent": overlay.get("final_intent"),
+                        "expected_tool_calls": expected_tool_calls,
+                        "forbidden_tool_calls": overlay.get("forbidden_tool_calls", []),
+                        "expected_final_state": expected_final_state,
+                        "voice_timeline": overlay.get("voice_timeline", []),
+                        "voice_assertions": overlay.get("voice_assertions", {}),
+                    },
                     "retention": {
                         "captured_slots": episode.get("captured_slots", {}),
                         "critical_slot_result": episode.get("critical_slot_result"),
@@ -829,6 +1251,7 @@ class DashboardStore:
                         "state_match": episode.get("scores", {}).get("state_match"),
                     },
                     "repair": episode.get("repair"),
+                    "fdrc_validity": episode.get("fdrc_validity"),
                     "transcript": {
                         "user": episode.get("user_transcript", []),
                         "assistant": episode.get("assistant_transcript", []),
@@ -839,6 +1262,7 @@ class DashboardStore:
                     "policy_violations": episode.get("policy_violations", []),
                     "initial_state": episode.get("initial_state", {}),
                     "final_state": episode.get("final_state", {}),
+                    "state_diff": episode.get("state_diff"),
                     "scores": episode.get("scores", {}),
                     "failure_types": episode.get("failure_types", []),
                     "timeline": _timeline(episode),
@@ -943,6 +1367,8 @@ class DashboardStore:
             "--output",
             str(output),
         ]
+        if preset["benchmark_track"] == FDRC_TRACK:
+            command.extend(["--fdrc-yield-mode", "native_yield"])
         if model:
             command.extend(["--model", model])
         job_id = str(uuid.uuid4())
