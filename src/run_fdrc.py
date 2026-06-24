@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 
 from src.env import load_benchmark_env
@@ -62,13 +63,15 @@ def main() -> None:
     )
     parser.add_argument("--episode-logs")
     parser.add_argument("--reference-agent", action="store_true")
-    parser.add_argument("--agent", choices=["openai_realtime"], default=None)
+    parser.add_argument("--agent", choices=["openai_realtime", "gemini_live"], default=None)
     parser.add_argument("--model", default="gpt-realtime-mini")
     parser.add_argument("--output")
     parser.add_argument("--run-id")
     parser.add_argument("--run-kind", choices=["provider", "reference", "sample", "internal", "imported", "unknown"])
     parser.add_argument("--merge-existing", action="store_true")
     args = parser.parse_args()
+    if args.agent == "gemini_live" and args.model == "gpt-realtime-mini":
+        args.model = os.getenv("GEMINI_MODEL") or "gemini-2.0-flash-live-001"
     if args.output is None:
         args.output = (
             "results/reference/fdrc"

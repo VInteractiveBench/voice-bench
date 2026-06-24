@@ -97,3 +97,53 @@ def test_tool_call_maps_function_calls():
         "type": "tool_call", "t_ms": 500, "tool": "climate_control",
         "args": {"device": "temp", "value": 24}, "call_id": "call_1",
     }]
+
+
+import asyncio
+from src.adapters.gemini_live_vivi_adapter import GeminiLiveViviAdapter
+
+
+class _FakeSession:
+    def __init__(self, messages):
+        self._messages = messages
+        self.sent_audio = []
+        self.tool_responses = []
+        self.closed = False
+
+    async def send_realtime_input(self, *, audio=None, **kw):
+        self.sent_audio.append(audio)
+
+    async def send_tool_response(self, *, function_responses):
+        self.tool_responses.append(function_responses)
+
+    async def receive(self):
+        for m in self._messages:
+            yield m
+
+    async def close(self):
+        self.closed = True
+
+
+def test_adapter_drains_messages_into_normalized_events():
+    from types import SimpleNamespace
+    msgs = [
+        SimpleNamespace(data=b"\x00\x01", server_content=None, tool_call=None),
+        SimpleNamespace(
+            data=None,
+            server_content=SimpleNamespace(
+                turn_complete=True, interrupted=None,
+                input_transcription=None, output_transcription=None,
+            ),
+            tool_call=None,
+        ),
+    ]
+    adapter = GeminiLiveViviAdapter(model="gemini-x", session=_FakeSession(msgs))
+
+    async def run():
+        await adapter.start_session(system_prompt="sys", tools=[])
+        return [e async for e in adapter.receive_events()]
+
+    events = asyncio.run(run())
+    types = [e["type"] for e in events]
+    assert "assistant_speech_start" in types
+    assert "assistant_speech_stop" in types

@@ -5,6 +5,7 @@ import time
 from typing import Literal
 
 from src.adapters import (
+    GeminiLiveViviAdapter,
     OpenAIRealtimeViviAdapter,
     OpenAITextViviAdapter,
     ViviAgentAdapter,
@@ -51,6 +52,8 @@ def build_adapter(agent: AgentName, model: str) -> ViviAgentAdapter:
         return OpenAITextViviAdapter(model=model)
     if agent == "openai_realtime":
         return OpenAIRealtimeViviAdapter(model=model)
+    if agent == "gemini_live":
+        return GeminiLiveViviAdapter(model=model)
     raise ValueError(f"Unsupported agent: {agent}")
 
 
@@ -82,7 +85,7 @@ async def run_agent_episode(
 
     await adapter.start_session(system_prompt=system_prompt, tools=tool_schemas)
     try:
-        if agent == "openai_realtime":
+        if agent in {"openai_realtime", "gemini_live"}:
             await _run_audio_episode(
                 adapter, task, overlay, mode, persona, server,
                 normalized_events, assistant_transcript, user_transcript, failures,

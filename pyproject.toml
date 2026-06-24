@@ -42,6 +42,7 @@ dependencies = [
     "websockets>=15.0.1",
     "sounddevice>=0.5.2",
     "python-decouple>=3.8",
+    "google-genai>=1.0.0",
 ]
 
 [tool.ruff.lint]
