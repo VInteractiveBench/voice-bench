@@ -108,4 +108,11 @@ def create_app(results_dir: str = "results") -> FastAPI:
             raise HTTPException(status_code=404, detail="Episode not found")
         return detail
 
+    @app.get("/api/runs/{run_id}/metrics/{metric_key}/explain")
+    def explain_metric(run_id: str, metric_key: str, track: str | None = None) -> dict[str, Any]:
+        try:
+            return store.explain_metric(run_id, metric_key, track=track)
+        except RunNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
     return app
