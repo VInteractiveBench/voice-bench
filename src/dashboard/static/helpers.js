@@ -261,6 +261,30 @@
     return run && run.benchmark_track === FDRC_TRACK;
   }
 
+  // ---- leaderboard row --------------------------------------------
+  // Turn a raw /api/leaderboard row into display-ready cells.
+  // Pass@1 only shows the performance number when the run is reportable.
+  function leaderboardRow(row) {
+    const reportable = String(row.reportability_status || "").startsWith("REPORTABLE");
+    return {
+      run_id: row.run_id,
+      provider: row.provider || "—",
+      model: row.model || "—",
+      yield_mode: row.yield_mode || "—",
+      episodes: fmtInt(row.episode_count),
+      reportable,
+      reportability_status: row.reportability_status || "—",
+      validityCell: fmtPct(row.fdrc_validity_rate),
+      passCell: reportable ? fmtPct(row.performance_fdrc_pass_at_1) : "—",
+      rawPassCell: fmtPct(row.raw_fdrc_pass_at_1),
+      yieldP50: fmtMs(row.performance_yield_latency_p50_ms),
+      yieldP95: fmtMs(row.performance_yield_latency_p95_ms),
+      forbiddenCell: fmtPct(row.forbidden_tool_call_rate),
+      cancelCell: fmtPct(row.cancel_success_rate),
+      uptakeCell: fmtPct(row.correction_uptake_rate),
+    };
+  }
+
   return {
     FDRC_TRACK,
     fmtPct,
@@ -282,5 +306,6 @@
     parseRoute,
     buildHash,
     isFdrcRun,
+    leaderboardRow,
   };
 });

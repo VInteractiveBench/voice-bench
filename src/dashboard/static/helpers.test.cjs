@@ -125,4 +125,30 @@ t("buildHash round-trips", () => {
   assert.strictEqual(back.episodeId, "ep:1");
 });
 
+// ---- leaderboard row ----
+t("leaderboardRow formats reportable run", () => {
+  const r = VB.leaderboardRow({
+    run_id: "run_gemini", provider: "google", model: "gemini-x",
+    yield_mode: "native_yield", episode_count: 90,
+    reportability_status: "REPORTABLE_DOMAIN",
+    fdrc_validity_rate: 1, performance_fdrc_pass_at_1: 0.5,
+    raw_fdrc_pass_at_1: 0.5,
+  });
+  assert.strictEqual(r.model, "gemini-x");
+  assert.strictEqual(r.passCell, "50.0%");
+  assert.strictEqual(r.validityCell, "100.0%");
+  assert.strictEqual(r.reportable, true);
+});
+
+t("leaderboardRow shows dash when not reportable", () => {
+  const r = VB.leaderboardRow({
+    run_id: "run_x", provider: "openai", model: "gpt",
+    reportability_status: "VALIDITY_ONLY",
+    fdrc_validity_rate: 0.8, performance_fdrc_pass_at_1: null,
+    raw_fdrc_pass_at_1: 0.1,
+  });
+  assert.strictEqual(r.passCell, "—");
+  assert.strictEqual(r.reportable, false);
+});
+
 console.log(`\n${passed} assertions passed.`);
