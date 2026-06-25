@@ -35,6 +35,32 @@ def test_to_gemini_tools_strips_openai_only_keys():
     ]
 
 
+def test_to_gemini_tools_normalizes_nullable_type_and_enum():
+    openai_schemas = [
+        {
+            "type": "function",
+            "name": "climate_control",
+            "description": "Set climate.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "level": {"type": ["integer", "null"]},
+                    "position": {
+                        "type": ["string", "null"],
+                        "enum": ["all", "driver", None],
+                    },
+                },
+                "required": ["level"],
+            },
+        }
+    ]
+    props = to_gemini_tools(openai_schemas)[0]["function_declarations"][0]["parameters"]["properties"]
+    # Gemini accepts only a single scalar type string + a `nullable` flag.
+    assert props["level"] == {"type": "integer", "nullable": True}
+    # null is dropped from enum; the type collapses to the non-null member.
+    assert props["position"] == {"type": "string", "nullable": True, "enum": ["all", "driver"]}
+
+
 def test_to_gemini_tools_empty():
     assert to_gemini_tools([]) == [{"function_declarations": []}]
 
@@ -109,6 +135,7 @@ class _FakeSession:
         self.sent_audio = []
         self.tool_responses = []
         self.closed = False
+        self._recv_calls = 0
 
     async def send_realtime_input(self, *, audio=None, **kw):
         self.sent_audio.append(audio)
@@ -117,6 +144,11 @@ class _FakeSession:
         self.tool_responses.append(function_responses)
 
     async def receive(self):
+        # Real `receive()` is per-turn; the reader loop re-invokes it. Yield the
+        # scripted turn once, then end the loop cleanly on the next call.
+        self._recv_calls += 1
+        if self._recv_calls > 1:
+            raise asyncio.CancelledError
         for m in self._messages:
             yield m
 

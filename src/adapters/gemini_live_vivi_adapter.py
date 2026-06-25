@@ -12,12 +12,21 @@ from .base_vivi_agent_adapter import NormalizedEvent, ViviAgentAdapter
 
 
 def _strip_unsupported(parameters: dict) -> dict:
-    """Gemini accepts an OpenAPI subset: drop OpenAI-only keys recursively."""
-    cleaned = {}
+    """Gemini accepts an OpenAPI subset: drop OpenAI-only keys and normalize the
+    nullable patterns (``"type": ["string", "null"]`` / ``null`` enum members)
+    that the Gemini schema validator rejects."""
+    cleaned: dict = {}
     for key, value in parameters.items():
         if key in {"additionalProperties", "strict"}:
             continue
-        if key == "properties" and isinstance(value, dict):
+        if key == "type" and isinstance(value, list):
+            non_null = [t for t in value if t != "null"]
+            cleaned["type"] = non_null[0] if non_null else "null"
+            if "null" in value:
+                cleaned["nullable"] = True
+        elif key == "enum" and isinstance(value, list):
+            cleaned["enum"] = [v for v in value if v is not None]
+        elif key == "properties" and isinstance(value, dict):
             cleaned[key] = {k: _strip_unsupported(v) if isinstance(v, dict) else v for k, v in value.items()}
         elif isinstance(value, dict):
             cleaned[key] = _strip_unsupported(value)
@@ -131,8 +140,9 @@ class GeminiLiveViviAdapter(ViviAgentAdapter):
         )
 
     async def commit_audio_turn(self) -> None:
-        # Automatic VAD detects turn boundaries; nothing to commit explicitly.
-        return None
+        # Signal end-of-audio so automatic VAD finalizes the turn. Without this the
+        # model never responds to short/clean turns (it keeps waiting for more audio).
+        await self._session.send_realtime_input(audio_stream_end=True)
 
     async def cancel_response(self) -> None:
         # Gemini auto-interrupts on new input; no explicit cancel frame is sent.
@@ -168,13 +178,18 @@ class GeminiLiveViviAdapter(ViviAgentAdapter):
 
     async def _reader_loop(self) -> None:
         try:
-            async for message in self._session.receive():
-                for event in normalize_gemini_message(message, t_ms=self._t_ms(), speaking=self._speaking):
-                    if event["type"] == "assistant_speech_start":
-                        self._speaking = True
-                    elif event["type"] in {"assistant_speech_stop", "assistant_yielded"}:
-                        self._speaking = False
-                    await self._events.put(event)
+            # `session.receive()` is a per-turn generator: it ends on turn_complete.
+            # Re-invoke it for each subsequent turn so multi-turn episodes (e.g. the
+            # FDRC repair turn) aren't dropped. Re-invoking blocks until the next
+            # turn's input arrives, so this does not busy-spin.
+            while True:
+                async for message in self._session.receive():
+                    for event in normalize_gemini_message(message, t_ms=self._t_ms(), speaking=self._speaking):
+                        if event["type"] == "assistant_speech_start":
+                            self._speaking = True
+                        elif event["type"] in {"assistant_speech_stop", "assistant_yielded"}:
+                            self._speaking = False
+                        await self._events.put(event)
         except asyncio.CancelledError:
             pass
         except Exception as exc:
