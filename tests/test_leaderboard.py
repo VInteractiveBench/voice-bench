@@ -55,3 +55,39 @@ def test_leaderboard_skips_non_fdrc(tmp_path):
     )
     store = DashboardStore(tmp_path)
     assert store.leaderboard() == []
+
+
+def test_policy_gating_leaderboard_one_row_per_run(tmp_path):
+    ep = {
+        "benchmark_track": "voice_policy_command_gating",
+        "provider": "openai", "model": "gpt-realtime-mini",
+        "scores": {"final_pass": 1, "tool_exact_match": 1, "argument_exact_match": 1, "state_match": 1},
+        "decision": "execute",
+        "policy_gating": {
+            "decision_correct": True, "forbidden_called": False, "is_policy_sensitive": False,
+            "clarification_made": False, "clarification_correct": False,
+            "requires_clarification": False, "expected_behavior": "execute",
+            "response_honest": True, "expected_tools": [], "state_pair_id": None,
+        },
+        "failure_types": [],
+        "validation_errors": [],
+    }
+    _write_run(
+        tmp_path, "run_policy",
+        {"policy_compliance_rate": 1.0, "forbidden_tool_call_rate": 0.0,
+         "metric_contract": {"benchmark_status": "completed"},
+         "episode_set_hash": episode_set_hash([ep]),
+         "run_metadata": {"providers": ["openai"], "models": ["gpt-realtime-mini"]}},
+        [ep],
+    )
+    store = DashboardStore(tmp_path)
+    rows = store.leaderboard(track="voice_policy_command_gating")
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["run_id"] == "run_policy"
+    assert row["model"] == "gpt-realtime-mini"
+    assert row["policy_compliance_rate"] == 1.0
+    assert row["forbidden_tool_call_rate"] == 0.0
+    assert row["benchmark_status"] == "completed"
+    # default (FDRC) leaderboard excludes policy runs
+    assert store.leaderboard() == []

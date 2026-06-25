@@ -1,12 +1,13 @@
 /* ============================================================
    Voice·Bench — Forensic Console (app)
    Vanilla JS. Reads the unchanged FastAPI /api routes.
-   Two tabs: 01 Full-Duplex (FDRC), 02 Leaderboard.
+   Two tabs: 01 Full-Duplex (FDRC), 02 Policy Gating leaderboard.
    ============================================================ */
 (() => {
   "use strict";
   const H = window.VB;
   const FDRC = H.FDRC_TRACK;
+  const POLICY = "voice_policy_command_gating";
 
   const view = document.getElementById("view");
   const tabsEl = document.getElementById("tabs");
@@ -906,39 +907,39 @@
   // VIEW: Leaderboard
   // ================================================================
   async function renderReserved() {
-    setStatus("leaderboard", "loading…");
+    setStatus("policy-gating", "loading…");
     let rows;
     try {
-      rows = await getJSON(`/api/leaderboard?track=${FDRC}`);
+      rows = await getJSON(`/api/leaderboard?track=${POLICY}`);
     } catch (e) {
       view.innerHTML = stateBlock({ glyph: "⚠", title: "Không tải được leaderboard", body: esc(e.message), error: true });
       return;
     }
     if (!rows.length) {
-      view.innerHTML = stateBlock({ glyph: "∅", title: "Chưa có run FDRC nào", body: "Chạy run_fdrc với --agent rồi quay lại." });
+      view.innerHTML = stateBlock({ glyph: "∅", title: "Chưa có run Policy Gating nào", body: "Chạy run_policy_gating với --agent rồi quay lại." });
       return;
     }
-    const head = ["Model", "Provider", "Yield", "Episodes", "Status", "Validity", "Pass@1", "Yield p50", "Yield p95", "Forbidden", "Cancel"];
+    const head = ["Model", "Provider", "Episodes", "Status", "Compliance", "Forbidden", "Clarify P", "Clarify R", "State Acc", "Honesty", "Final State"];
     const body = rows.map((raw) => {
-      const r = H.leaderboardRow(raw);
+      const r = H.policyLeaderboardRow(raw);
       return `<tr class="${r.reportable ? "" : "muted"}">
         <td><b>${esc(r.model)}</b><div class="sub">${esc(r.run_id)}</div></td>
         <td>${esc(r.provider)}</td>
-        <td>${esc(r.yield_mode)}</td>
         <td class="cell-num">${esc(r.episodes)}</td>
-        <td>${esc(r.reportability_status)}</td>
-        <td class="cell-num">${esc(r.validityCell)}</td>
-        <td class="cell-num">${esc(r.passCell)}</td>
-        <td class="cell-num">${esc(r.yieldP50)}</td>
-        <td class="cell-num">${esc(r.yieldP95)}</td>
+        <td>${esc(r.status)}</td>
+        <td class="cell-num">${esc(r.complianceCell)}</td>
         <td class="cell-num">${esc(r.forbiddenCell)}</td>
-        <td class="cell-num">${esc(r.cancelCell)}</td>
+        <td class="cell-num">${esc(r.clarPrecisionCell)}</td>
+        <td class="cell-num">${esc(r.clarRecallCell)}</td>
+        <td class="cell-num">${esc(r.stateAccCell)}</td>
+        <td class="cell-num">${esc(r.honestyCell)}</td>
+        <td class="cell-num">${esc(r.finalStateCell)}</td>
       </tr>`;
     }).join("");
-    view.innerHTML = `<section class="panel"><h2>FDRC Leaderboard</h2>
+    view.innerHTML = `<section class="panel"><h2>Policy-Grounded Voice Command Gating Leaderboard</h2>
       <table class="lb"><thead><tr>${head.map((h) => `<th>${esc(h)}</th>`).join("")}</tr></thead>
       <tbody>${body}</tbody></table></section>`;
-    setStatus("leaderboard", `${rows.length} runs`);
+    setStatus("policy-gating", `${rows.length} runs`);
   }
 
   // ---- router -----------------------------------------------------

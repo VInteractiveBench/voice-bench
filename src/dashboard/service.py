@@ -981,27 +981,44 @@ class DashboardStore:
             summary = self.run_summary(run["run_id"], track=track)
             metrics = summary.get("metrics", {})
             meta = summary.get("run_metadata", {}) or {}
-            rows.append({
+            contract = metrics.get("metric_contract") if isinstance(metrics.get("metric_contract"), dict) else {}
+            row = {
                 "run_id": run["run_id"],
                 "provider": (meta.get("providers") or [None])[0],
                 "model": (meta.get("models") or [None])[0],
-                "yield_mode": (meta.get("fdrc_yield_modes") or [None])[0],
                 "run_kind": run.get("run_kind"),
                 "data_provenance": run.get("data_provenance"),
                 "episode_count": summary.get("episode_count"),
                 "updated_at": run.get("updated_at"),
-                "reportability_status": metrics.get("reportability_status"),
-                "fdrc_validity_rate": metrics.get("fdrc_validity_rate"),
-                "raw_fdrc_pass_at_1": metrics.get("raw_fdrc_pass_at_1"),
-                "performance_fdrc_pass_at_1": metrics.get("performance_fdrc_pass_at_1"),
-                "performance_yield_latency_p50_ms": metrics.get("performance_yield_latency_p50_ms"),
-                "performance_yield_latency_p95_ms": metrics.get("performance_yield_latency_p95_ms"),
-                "performance_yield_latency_pass_rate": metrics.get("performance_yield_latency_pass_rate"),
-                "forbidden_tool_call_rate": metrics.get("forbidden_tool_call_rate"),
-                "cancel_success_rate": metrics.get("cancel_success_rate"),
-                "correction_uptake_rate": metrics.get("correction_uptake_rate"),
-                "old_intent_suppression_rate": metrics.get("old_intent_suppression_rate"),
-            })
+                "benchmark_status": contract.get("benchmark_status"),
+            }
+            if track == POLICY_TRACK:
+                row.update({
+                    "policy_compliance_rate": metrics.get("policy_compliance_rate"),
+                    "forbidden_tool_call_rate": metrics.get("forbidden_tool_call_rate"),
+                    "clarification_precision": metrics.get("clarification_precision"),
+                    "clarification_recall": metrics.get("clarification_recall"),
+                    "state_conditioned_decision_accuracy": metrics.get("state_conditioned_decision_accuracy"),
+                    "response_honesty_rate": metrics.get("response_honesty_rate"),
+                    "final_state_correctness": metrics.get("final_state_correctness"),
+                    "tool_argument_accuracy": metrics.get("tool_argument_accuracy"),
+                })
+            else:
+                row.update({
+                    "yield_mode": (meta.get("fdrc_yield_modes") or [None])[0],
+                    "reportability_status": metrics.get("reportability_status"),
+                    "fdrc_validity_rate": metrics.get("fdrc_validity_rate"),
+                    "raw_fdrc_pass_at_1": metrics.get("raw_fdrc_pass_at_1"),
+                    "performance_fdrc_pass_at_1": metrics.get("performance_fdrc_pass_at_1"),
+                    "performance_yield_latency_p50_ms": metrics.get("performance_yield_latency_p50_ms"),
+                    "performance_yield_latency_p95_ms": metrics.get("performance_yield_latency_p95_ms"),
+                    "performance_yield_latency_pass_rate": metrics.get("performance_yield_latency_pass_rate"),
+                    "forbidden_tool_call_rate": metrics.get("forbidden_tool_call_rate"),
+                    "cancel_success_rate": metrics.get("cancel_success_rate"),
+                    "correction_uptake_rate": metrics.get("correction_uptake_rate"),
+                    "old_intent_suppression_rate": metrics.get("old_intent_suppression_rate"),
+                })
+            rows.append(row)
         return rows
 
     def _scoped_evaluation_episodes(
