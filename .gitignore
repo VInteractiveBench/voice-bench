@@ -12,7 +12,7 @@ data/simulations/
 data/recordings/
 /.claude
 .ruff_cache
-
+/docs/superpowers/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
