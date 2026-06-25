@@ -37,10 +37,6 @@ def create_app(results_dir: str = "results") -> FastAPI:
     def list_runs() -> list[dict[str, Any]]:
         return store.list_runs()
 
-    @app.get("/api/leaderboard")
-    def leaderboard() -> list[dict[str, Any]]:
-        return store.leaderboard()
-
     @app.get("/api/run-presets")
     def run_presets() -> list[dict[str, Any]]:
         return store.run_presets()

@@ -973,35 +973,6 @@ class DashboardStore:
             )
         return sorted(runs, key=lambda row: row.get("updated_at") or "", reverse=True)
 
-    def leaderboard(self) -> list[dict[str, Any]]:
-        rows = []
-        for run in self.list_runs():
-            if run.get("benchmark_track") != POLICY_TRACK:
-                continue
-            summary = self.run_summary(run["run_id"], track=POLICY_TRACK)
-            metrics = summary.get("metrics", {})
-            meta = summary.get("run_metadata", {}) or {}
-            contract = metrics.get("metric_contract") if isinstance(metrics.get("metric_contract"), dict) else {}
-            rows.append({
-                "run_id": run["run_id"],
-                "provider": (meta.get("providers") or [None])[0],
-                "model": (meta.get("models") or [None])[0],
-                "run_kind": run.get("run_kind"),
-                "data_provenance": run.get("data_provenance"),
-                "episode_count": summary.get("episode_count"),
-                "updated_at": run.get("updated_at"),
-                "benchmark_status": contract.get("benchmark_status"),
-                "policy_compliance_rate": metrics.get("policy_compliance_rate"),
-                "forbidden_tool_call_rate": metrics.get("forbidden_tool_call_rate"),
-                "clarification_precision": metrics.get("clarification_precision"),
-                "clarification_recall": metrics.get("clarification_recall"),
-                "state_conditioned_decision_accuracy": metrics.get("state_conditioned_decision_accuracy"),
-                "response_honesty_rate": metrics.get("response_honesty_rate"),
-                "final_state_correctness": metrics.get("final_state_correctness"),
-                "tool_argument_accuracy": metrics.get("tool_argument_accuracy"),
-            })
-        return rows
-
     def _scoped_evaluation_episodes(
         self, run_id: str, track: str | None = None
     ) -> tuple[list[dict[str, Any]], str | None, str, bool, dict[str, Any]]:

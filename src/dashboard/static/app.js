@@ -1,12 +1,31 @@
 /* ============================================================
    Voice·Bench — Forensic Console (app)
    Vanilla JS. Reads the unchanged FastAPI /api routes.
-   Two tabs: 01 Full-Duplex (FDRC), 02 Policy Gating leaderboard.
+   Two tabs: 01 Full-Duplex (FDRC), 02 Policy Gating — same metrics overview UI.
    ============================================================ */
 (() => {
   "use strict";
   const H = window.VB;
-  const FDRC = H.FDRC_TRACK;
+
+  // Each tab is one benchmark track; the overview/episode views are shared and
+  // parameterised by the active track so both tabs share the same UI.
+  const TRACKS = {
+    fdrc: {
+      tab: "fdrc",
+      track: H.FDRC_TRACK,
+      label: "FDRC",
+      emptyTitle: "Chưa có FDRC run nào",
+      emptyBody: "Thư mục <code>results/</code> chưa có run nào thuộc track Full-Duplex Repair-to-Commit.",
+    },
+    policy: {
+      tab: "policy",
+      track: "voice_policy_command_gating",
+      label: "Policy Gating",
+      emptyTitle: "Chưa có Policy Gating run nào",
+      emptyBody: "Thư mục <code>results/</code> chưa có run nào thuộc track Policy-Grounded Voice Command Gating.",
+    },
+  };
+  let ACTIVE = TRACKS.fdrc;
 
   const view = document.getElementById("view");
   const tabsEl = document.getElementById("tabs");
@@ -14,7 +33,7 @@
   const sbMeta = document.getElementById("sb-meta");
 
   // ---- tiny state -------------------------------------------------
-  const cache = { runs: null, summary: {}, episodes: {} };
+  const cache = { runsByTrack: {}, summary: {}, episodes: {} };
   const explorerFilters = { validity: "", passed: "", domain: "", failure: "" };
   const explorerSort = { key: "episode_id", dir: 1 };
   let showDiagnosticRuns = false;
@@ -55,21 +74,22 @@
 
   // ---- data -------------------------------------------------------
   async function loadRuns() {
-    if (cache.runs) return cache.runs;
+    const track = ACTIVE.track;
+    if (cache.runsByTrack[track]) return cache.runsByTrack[track];
     const all = await getJSON("/api/runs");
-    cache.runs = all.filter(H.isFdrcRun);
-    return cache.runs;
+    cache.runsByTrack[track] = all.filter((r) => r.benchmark_track === track);
+    return cache.runsByTrack[track];
   }
   async function loadSummary(runId) {
     if (cache.summary[runId]) return cache.summary[runId];
     const s = await getJSON(
-      `/api/runs/${encodeURIComponent(runId)}/summary?track=${FDRC}`
+      `/api/runs/${encodeURIComponent(runId)}/summary?track=${ACTIVE.track}`
     );
     cache.summary[runId] = s;
     return s;
   }
   function loadEpisodes(runId, filters) {
-    const q = new URLSearchParams({ track: FDRC });
+    const q = new URLSearchParams({ track: ACTIVE.track });
     if (filters.validity) q.set("validity", filters.validity);
     if (filters.passed === "true" || filters.passed === "false") q.set("passed", filters.passed);
     if (filters.domain) q.set("domain", filters.domain);
@@ -129,7 +149,7 @@
       : "";
 
     return `<div class="field">
-      <label>FDRC Run</label>
+      <label>${esc(ACTIVE.label)} Run</label>
       <select id="run-select">${body}</select>
       ${toggle}
     </div>`;
@@ -139,7 +159,7 @@
   // VIEW: Overview
   // ================================================================
   async function renderOverview(route) {
-    setStatus("fdrc / overview", "loading runs…");
+    setStatus(`${ACTIVE.tab} / overview`, "loading runs…");
     view.innerHTML = `<div class="skeleton"></div><div class="skeleton"></div>`;
 
     let runs;
@@ -152,8 +172,8 @@
     if (!runs.length) {
       view.innerHTML = stateBlock({
         glyph: "∅",
-        title: "Chưa có FDRC run nào",
-        body: "Thư mục <code>results/</code> chưa có run nào thuộc track Full-Duplex Repair-to-Commit.",
+        title: ACTIVE.emptyTitle,
+        body: ACTIVE.emptyBody,
       });
       return;
     }
@@ -179,7 +199,7 @@
 
     function wireRunControls() {
       document.getElementById("run-select").addEventListener("change", (e) =>
-        nav({ tab: "fdrc", view: "overview", runId: e.target.value })
+        nav({ tab: ACTIVE.tab, view: "overview", runId: e.target.value })
       );
       const showAllEl = document.getElementById("show-all-runs");
       if (showAllEl) {
@@ -191,7 +211,7 @@
           // dropdown and content stay in sync.
           const active = runs.find((r) => r.run_id === runId);
           if (!showDiagnosticRuns && active && H.effectiveRunKind(active) !== "benchmark") {
-            nav({ tab: "fdrc", view: "overview", runId: H.defaultRunId(runs) });
+            nav({ tab: ACTIVE.tab, view: "overview", runId: H.defaultRunId(runs) });
             return;
           }
           const field = document.querySelector(".controls .field");
@@ -202,10 +222,10 @@
     }
     wireRunControls();
     document.getElementById("go-episodes").addEventListener("click", () =>
-      nav({ tab: "fdrc", view: "episodes", runId })
+      nav({ tab: ACTIVE.tab, view: "episodes", runId })
     );
 
-    setStatus(`fdrc / overview / ${runId}`, "loading summary…");
+    setStatus(`${ACTIVE.tab} / overview / ${runId}`, "loading summary…");
     let summary, episodesResp;
     try {
       [summary, episodesResp] = await Promise.all([
@@ -258,7 +278,7 @@
     ovBody.addEventListener("keydown", (e) => {
       if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onMetricActivate(e.target); }
     });
-    setStatus(`fdrc / overview / ${runId}`, `${summary.episode_count ?? 0} episodes`);
+    setStatus(`${ACTIVE.tab} / overview / ${runId}`, `${summary.episode_count ?? 0} episodes`);
   }
 
   function metricStatusClass(status) {
@@ -273,8 +293,8 @@
     const byKey = {};
     for (const m of catalog) byKey[m.key] = m;
     let groups = summary.metric_groups || [];
-    // Prefer the FDRC-relevant groups; fall back to all if shape differs.
-    const wanted = ["fdrc", "latency", "contract", "tool_state", "policy", "overview"];
+    // Prefer the track-relevant groups first; fall back to all if shape differs.
+    const wanted = ["policy_gating", "fdrc", "latency", "contract", "tool_state", "policy", "overview"];
     if (groups.length) {
       groups = groups.slice().sort((a, b) => {
         const ia = wanted.findIndex((w) => String(a.id).includes(w));
@@ -375,7 +395,7 @@
 
   async function fetchExplain(runId, key) {
     return getJSON(
-      `/api/runs/${encodeURIComponent(runId)}/metrics/${encodeURIComponent(key)}/explain?track=${FDRC}`
+      `/api/runs/${encodeURIComponent(runId)}/metrics/${encodeURIComponent(key)}/explain?track=${ACTIVE.track}`
     );
   }
 
@@ -393,7 +413,7 @@
     const persona = [ep.accent_region, ep.speech_speed].filter(Boolean).join("·") || "—";
     const status = ep.passed === true ? "pass" : ep.passed === false ? "fail" : "—";
     return `<tr>
-      <td><a href="${H.buildHash({ tab: "fdrc", view: "episode", runId, episodeId: ep.episode_id })}">${esc(ep.episode_id)}</a></td>
+      <td><a href="${H.buildHash({ tab: ACTIVE.tab, view: "episode", runId, episodeId: ep.episode_id })}">${esc(ep.episode_id)}</a></td>
       <td>${esc(ep.domain || "—")}</td>
       <td>${esc(persona)}</td>
       <td>${esc(status)}</td>
@@ -418,7 +438,7 @@
             <tbody>${eps.map((ep) => explainEpisodeRow(runId, ep)).join("")}</tbody></table>`
         : `<p class="modal-note">Tử số rỗng — không episode nào thỏa điều kiện.</p>`;
       const explorerLink = data.explorer_filter
-        ? `<a class="btn btn-ghost" id="modal-explorer" href="${H.buildHash({ tab: "fdrc", view: "episodes", runId })}">Mở Episode Explorer →</a>`
+        ? `<a class="btn btn-ghost" id="modal-explorer" href="${H.buildHash({ tab: ACTIVE.tab, view: "episodes", runId })}">Mở Episode Explorer →</a>`
         : "";
       const divergeWarn = data.value_matches_recomputed === false
         ? `<div class="modal-diverge">⚠ Giá trị hiển thị (${esc(headline)}, từ ${esc(data.metric_source)}) KHÁC giá trị tính lại từ episode (${esc(recomputed)} = ${esc(ratio)}). Cần kiểm tra metrics.json.</div>`
@@ -490,7 +510,7 @@
   // ================================================================
   async function renderEpisodes(route) {
     const runId = route.runId;
-    setStatus(`fdrc / episodes / ${runId}`, "loading…");
+    setStatus(`${ACTIVE.tab} / episodes / ${runId}`, "loading…");
     view.innerHTML = `
       <button class="crumb" id="back-ov">← Overview</button>
       <div class="section-head"><h2>Episode Explorer</h2><span class="count" id="ep-count">—</span></div>
@@ -498,7 +518,7 @@
       <div id="ep-table"><div class="skeleton"></div></div>`;
 
     document.getElementById("back-ov").addEventListener("click", () =>
-      nav({ tab: "fdrc", view: "overview", runId })
+      nav({ tab: ACTIVE.tab, view: "overview", runId })
     );
 
     let summary;
@@ -563,7 +583,7 @@
     const rows = resp.episodes.slice();
     const cnt = document.getElementById("ep-count");
     if (cnt) cnt.textContent = `${resp.count} / ${resp.total}`;
-    setStatus(`fdrc / episodes / ${runId}`, `${resp.count} of ${resp.total}`);
+    setStatus(`${ACTIVE.tab} / episodes / ${runId}`, `${resp.count} of ${resp.total}`);
 
     if (!rows.length) {
       host.innerHTML = stateBlock({ glyph: "∅", title: "Không có episode khớp filter", body: "Thử nới lỏng bộ lọc." });
@@ -614,7 +634,7 @@
     );
     host.querySelectorAll("tbody tr").forEach((tr) =>
       tr.addEventListener("click", () =>
-        nav({ tab: "fdrc", view: "episode", runId, episodeId: tr.getAttribute("data-ep") })
+        nav({ tab: ACTIVE.tab, view: "episode", runId, episodeId: tr.getAttribute("data-ep") })
       )
     );
   }
@@ -637,11 +657,11 @@
   // ================================================================
   async function renderEpisodeDetail(route) {
     const { runId, episodeId } = route;
-    setStatus(`fdrc / episode / ${episodeId}`, "loading…");
+    setStatus(`${ACTIVE.tab} / episode / ${episodeId}`, "loading…");
     view.innerHTML = `<button class="crumb" id="back-eps">← Episodes</button>
       <div class="skeleton"></div><div class="skeleton"></div>`;
     document.getElementById("back-eps").addEventListener("click", () =>
-      nav({ tab: "fdrc", view: "episodes", runId })
+      nav({ tab: ACTIVE.tab, view: "episodes", runId })
     );
 
     let d;
@@ -654,7 +674,7 @@
         `<button class="crumb" id="back-eps2">← Episodes</button>` +
         stateBlock({ glyph: "⚠", title: "Không tải được episode", body: esc(e.message), error: true });
       document.getElementById("back-eps2").addEventListener("click", () =>
-        nav({ tab: "fdrc", view: "episodes", runId }));
+        nav({ tab: ACTIVE.tab, view: "episodes", runId }));
       return;
     }
 
@@ -735,7 +755,7 @@
       raw;
 
     document.getElementById("back-eps3").addEventListener("click", () =>
-      nav({ tab: "fdrc", view: "episodes", runId }));
+      nav({ tab: ACTIVE.tab, view: "episodes", runId }));
     setStatus(`fdrc / episode / ${episodeId}`, status.toUpperCase());
   }
 
@@ -902,45 +922,6 @@
   }
   function truncate(s, n) { s = String(s); return s.length > n ? s.slice(0, n - 1) + "…" : s; }
 
-  // ================================================================
-  // VIEW: Leaderboard
-  // ================================================================
-  async function renderReserved() {
-    setStatus("policy-gating", "loading…");
-    let rows;
-    try {
-      rows = await getJSON(`/api/leaderboard`);
-    } catch (e) {
-      view.innerHTML = stateBlock({ glyph: "⚠", title: "Không tải được leaderboard", body: esc(e.message), error: true });
-      return;
-    }
-    if (!rows.length) {
-      view.innerHTML = stateBlock({ glyph: "∅", title: "Chưa có run Policy Gating nào", body: "Chạy run_policy_gating với --agent rồi quay lại." });
-      return;
-    }
-    const head = ["Model", "Provider", "Episodes", "Status", "Compliance", "Forbidden", "Clarify P", "Clarify R", "State Acc", "Honesty", "Final State"];
-    const body = rows.map((raw) => {
-      const r = H.policyLeaderboardRow(raw);
-      return `<tr class="${r.reportable ? "" : "muted"}">
-        <td><b>${esc(r.model)}</b><div class="sub">${esc(r.run_id)}</div></td>
-        <td>${esc(r.provider)}</td>
-        <td class="cell-num">${esc(r.episodes)}</td>
-        <td>${esc(r.status)}</td>
-        <td class="cell-num">${esc(r.complianceCell)}</td>
-        <td class="cell-num">${esc(r.forbiddenCell)}</td>
-        <td class="cell-num">${esc(r.clarPrecisionCell)}</td>
-        <td class="cell-num">${esc(r.clarRecallCell)}</td>
-        <td class="cell-num">${esc(r.stateAccCell)}</td>
-        <td class="cell-num">${esc(r.honestyCell)}</td>
-        <td class="cell-num">${esc(r.finalStateCell)}</td>
-      </tr>`;
-    }).join("");
-    view.innerHTML = `<section class="panel"><h2>Policy-Grounded Voice Command Gating Leaderboard</h2>
-      <table class="lb"><thead><tr>${head.map((h) => `<th>${esc(h)}</th>`).join("")}</tr></thead>
-      <tbody>${body}</tbody></table></section>`;
-    setStatus("policy-gating", `${rows.length} runs`);
-  }
-
   // ---- router -----------------------------------------------------
   let _route = { tab: "fdrc", view: "overview" };
   function currentRoute() { return _route; }
@@ -954,8 +935,8 @@
   function route() {
     const r = H.parseRoute(location.hash);
     _route = r;
+    ACTIVE = TRACKS[r.tab] || TRACKS.fdrc;
     setActiveTab(r.tab);
-    if (r.tab === "lab") return renderReserved();
     if (r.view === "episode") return renderEpisodeDetail(r);
     if (r.view === "episodes") return renderEpisodes(r);
     return renderOverview(r);

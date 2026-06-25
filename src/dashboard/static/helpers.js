@@ -333,30 +333,30 @@
 
   // ---- hash routing ----------------------------------------------
   // Parse "#fdrc/runs/:id/episodes/:eid" into a structured route.
+  const KNOWN_TABS = new Set(["fdrc", "policy"]);
+
   function parseRoute(hash) {
     const raw = String(hash || "").replace(/^#\/?/, "");
     const parts = raw.split("/").filter(Boolean);
     if (parts.length === 0) return { tab: "fdrc", view: "overview" };
-    const tab = parts[0];
-    if (tab === "lab") return { tab: "lab" };
-    // fdrc routes
+    const tab = KNOWN_TABS.has(parts[0]) ? parts[0] : "fdrc";
     if (parts[1] === "runs" && parts[2]) {
       const runId = decodeURIComponent(parts[2]);
       if (parts[3] === "episodes" && parts[4]) {
-        return { tab: "fdrc", view: "episode", runId, episodeId: decodeURIComponent(parts[4]) };
+        return { tab, view: "episode", runId, episodeId: decodeURIComponent(parts[4]) };
       }
       if (parts[3] === "episodes") {
-        return { tab: "fdrc", view: "episodes", runId };
+        return { tab, view: "episodes", runId };
       }
-      return { tab: "fdrc", view: "overview", runId };
+      return { tab, view: "overview", runId };
     }
-    return { tab: "fdrc", view: "overview" };
+    return { tab, view: "overview" };
   }
 
   function buildHash(route) {
-    if (!route || route.tab === "lab") return "#lab";
-    const r = ["#fdrc"];
-    if (route.runId) {
+    const tab = (route && route.tab) || "fdrc";
+    const r = ["#" + tab];
+    if (route && route.runId) {
       r.push("runs", encodeURIComponent(route.runId));
       if (route.view === "episodes") r.push("episodes");
       if (route.view === "episode" && route.episodeId) {
@@ -366,31 +366,6 @@
     return r.join("/");
   }
 
-  function isFdrcRun(run) {
-    return run && run.benchmark_track === FDRC_TRACK;
-  }
-
-  // ---- leaderboard row --------------------------------------------
-  // Turn a raw policy-gating /api/leaderboard row into display-ready cells.
-  // Only provider runs are "reportable"; reference/sample rows render muted.
-  function policyLeaderboardRow(row) {
-    const reportable = row.data_provenance === "provider";
-    return {
-      run_id: row.run_id,
-      provider: row.provider || "—",
-      model: row.model || "—",
-      episodes: fmtInt(row.episode_count),
-      reportable,
-      status: row.benchmark_status || "—",
-      complianceCell: fmtPct(row.policy_compliance_rate),
-      forbiddenCell: fmtPct(row.forbidden_tool_call_rate),
-      clarPrecisionCell: fmtPct(row.clarification_precision),
-      clarRecallCell: fmtPct(row.clarification_recall),
-      stateAccCell: fmtPct(row.state_conditioned_decision_accuracy),
-      honestyCell: fmtPct(row.response_honesty_rate),
-      finalStateCell: fmtPct(row.final_state_correctness),
-    };
-  }
 
   // Look up a decision-confusion-matrix count for an expected/agent pair.
   function confusionCell(matrix, expected, agent) {
@@ -401,7 +376,6 @@
   return {
     FDRC_TRACK,
     confusionCell,
-    policyLeaderboardRow,
     RUN_KIND_ORDER,
     RUN_KIND_LABELS,
     effectiveRunKind,
@@ -429,6 +403,5 @@
     earlyCommit,
     parseRoute,
     buildHash,
-    isFdrcRun,
   };
 });

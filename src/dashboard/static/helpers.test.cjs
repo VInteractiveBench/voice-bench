@@ -110,7 +110,8 @@ t("classifyEvent buckets", () => {
 // ---- routing ----
 t("parseRoute overview/episodes/episode", () => {
   assert.deepStrictEqual(VB.parseRoute("#fdrc"), { tab: "fdrc", view: "overview" });
-  assert.deepStrictEqual(VB.parseRoute("#lab"), { tab: "lab" });
+  assert.deepStrictEqual(VB.parseRoute("#policy"), { tab: "policy", view: "overview" });
+  assert.deepStrictEqual(VB.parseRoute("#policy/runs/abc"), { tab: "policy", view: "overview", runId: "abc" });
   assert.deepStrictEqual(VB.parseRoute("#fdrc/runs/abc"), { tab: "fdrc", view: "overview", runId: "abc" });
   assert.deepStrictEqual(VB.parseRoute("#fdrc/runs/abc/episodes"), { tab: "fdrc", view: "episodes", runId: "abc" });
   assert.deepStrictEqual(
@@ -124,8 +125,6 @@ t("buildHash round-trips", () => {
   assert.strictEqual(back.runId, "r 1");
   assert.strictEqual(back.episodeId, "ep:1");
 });
-
-// ---- policy-gating leaderboard row ----
 
 // ---- run kind grouping ----
 t("effectiveRunKind maps provider => benchmark", () => {
@@ -247,28 +246,6 @@ t("confusionCell returns count for expected/agent pair", () => {
   const matrix = [{ expected: "refuse", agent: "execute", count: 3 }];
   assert.strictEqual(VB.confusionCell(matrix, "refuse", "execute"), 3);
   assert.strictEqual(VB.confusionCell(matrix, "refuse", "refuse"), 0);
-});
-
-t("policyLeaderboardRow formats provider run as reportable", () => {
-  const r = VB.policyLeaderboardRow({
-    run_id: "run_pg", provider: "openai", model: "gpt-x",
-    data_provenance: "provider", episode_count: 24, benchmark_status: "completed",
-    policy_compliance_rate: 0.9, forbidden_tool_call_rate: 0.0,
-    clarification_precision: 1.0, clarification_recall: 0.8,
-    state_conditioned_decision_accuracy: 1.0, response_honesty_rate: 0.95,
-    final_state_correctness: 1.0,
-  });
-  assert.strictEqual(r.model, "gpt-x");
-  assert.strictEqual(r.reportable, true);
-  assert.strictEqual(r.complianceCell, "90.0%");
-  assert.strictEqual(r.forbiddenCell, "0.0%");
-  assert.strictEqual(r.status, "completed");
-});
-
-t("policyLeaderboardRow mutes non-provider runs", () => {
-  const r = VB.policyLeaderboardRow({ run_id: "ref", data_provenance: "reference" });
-  assert.strictEqual(r.reportable, false);
-  assert.strictEqual(r.complianceCell, "—");
 });
 
 console.log(`\n${passed} assertions passed.`);
