@@ -7,7 +7,6 @@
   "use strict";
   const H = window.VB;
   const FDRC = H.FDRC_TRACK;
-  const POLICY = "voice_policy_command_gating";
 
   const view = document.getElementById("view");
   const tabsEl = document.getElementById("tabs");
@@ -910,7 +909,7 @@
     setStatus("policy-gating", "loading…");
     let rows;
     try {
-      rows = await getJSON(`/api/leaderboard?track=${POLICY}`);
+      rows = await getJSON(`/api/leaderboard`);
     } catch (e) {
       view.innerHTML = stateBlock({ glyph: "⚠", title: "Không tải được leaderboard", body: esc(e.message), error: true });
       return;

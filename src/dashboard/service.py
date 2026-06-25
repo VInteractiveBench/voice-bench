@@ -973,16 +973,16 @@ class DashboardStore:
             )
         return sorted(runs, key=lambda row: row.get("updated_at") or "", reverse=True)
 
-    def leaderboard(self, track: str = "full_duplex_repair_to_commit") -> list[dict[str, Any]]:
+    def leaderboard(self) -> list[dict[str, Any]]:
         rows = []
         for run in self.list_runs():
-            if run.get("benchmark_track") != track:
+            if run.get("benchmark_track") != POLICY_TRACK:
                 continue
-            summary = self.run_summary(run["run_id"], track=track)
+            summary = self.run_summary(run["run_id"], track=POLICY_TRACK)
             metrics = summary.get("metrics", {})
             meta = summary.get("run_metadata", {}) or {}
             contract = metrics.get("metric_contract") if isinstance(metrics.get("metric_contract"), dict) else {}
-            row = {
+            rows.append({
                 "run_id": run["run_id"],
                 "provider": (meta.get("providers") or [None])[0],
                 "model": (meta.get("models") or [None])[0],
@@ -991,34 +991,15 @@ class DashboardStore:
                 "episode_count": summary.get("episode_count"),
                 "updated_at": run.get("updated_at"),
                 "benchmark_status": contract.get("benchmark_status"),
-            }
-            if track == POLICY_TRACK:
-                row.update({
-                    "policy_compliance_rate": metrics.get("policy_compliance_rate"),
-                    "forbidden_tool_call_rate": metrics.get("forbidden_tool_call_rate"),
-                    "clarification_precision": metrics.get("clarification_precision"),
-                    "clarification_recall": metrics.get("clarification_recall"),
-                    "state_conditioned_decision_accuracy": metrics.get("state_conditioned_decision_accuracy"),
-                    "response_honesty_rate": metrics.get("response_honesty_rate"),
-                    "final_state_correctness": metrics.get("final_state_correctness"),
-                    "tool_argument_accuracy": metrics.get("tool_argument_accuracy"),
-                })
-            else:
-                row.update({
-                    "yield_mode": (meta.get("fdrc_yield_modes") or [None])[0],
-                    "reportability_status": metrics.get("reportability_status"),
-                    "fdrc_validity_rate": metrics.get("fdrc_validity_rate"),
-                    "raw_fdrc_pass_at_1": metrics.get("raw_fdrc_pass_at_1"),
-                    "performance_fdrc_pass_at_1": metrics.get("performance_fdrc_pass_at_1"),
-                    "performance_yield_latency_p50_ms": metrics.get("performance_yield_latency_p50_ms"),
-                    "performance_yield_latency_p95_ms": metrics.get("performance_yield_latency_p95_ms"),
-                    "performance_yield_latency_pass_rate": metrics.get("performance_yield_latency_pass_rate"),
-                    "forbidden_tool_call_rate": metrics.get("forbidden_tool_call_rate"),
-                    "cancel_success_rate": metrics.get("cancel_success_rate"),
-                    "correction_uptake_rate": metrics.get("correction_uptake_rate"),
-                    "old_intent_suppression_rate": metrics.get("old_intent_suppression_rate"),
-                })
-            rows.append(row)
+                "policy_compliance_rate": metrics.get("policy_compliance_rate"),
+                "forbidden_tool_call_rate": metrics.get("forbidden_tool_call_rate"),
+                "clarification_precision": metrics.get("clarification_precision"),
+                "clarification_recall": metrics.get("clarification_recall"),
+                "state_conditioned_decision_accuracy": metrics.get("state_conditioned_decision_accuracy"),
+                "response_honesty_rate": metrics.get("response_honesty_rate"),
+                "final_state_correctness": metrics.get("final_state_correctness"),
+                "tool_argument_accuracy": metrics.get("tool_argument_accuracy"),
+            })
         return rows
 
     def _scoped_evaluation_episodes(

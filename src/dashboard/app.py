@@ -38,8 +38,8 @@ def create_app(results_dir: str = "results") -> FastAPI:
         return store.list_runs()
 
     @app.get("/api/leaderboard")
-    def leaderboard(track: str = "full_duplex_repair_to_commit") -> list[dict[str, Any]]:
-        return store.leaderboard(track=track)
+    def leaderboard() -> list[dict[str, Any]]:
+        return store.leaderboard()
 
     @app.get("/api/run-presets")
     def run_presets() -> list[dict[str, Any]]:
