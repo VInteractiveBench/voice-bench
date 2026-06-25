@@ -31,9 +31,9 @@ def resample(samples: np.ndarray, sr_in: int, sr_out: int = TARGET_SR) -> np.nda
     array = np.asarray(samples, dtype=np.float32)
     if sr_in == sr_out:
         return array
-    import librosa
+    import soxr
 
-    return librosa.resample(array, orig_sr=sr_in, target_sr=sr_out).astype(np.float32)
+    return soxr.resample(array, sr_in, sr_out).astype(np.float32)
 
 
 def load_audio(path: str | Path, target_sr: int = TARGET_SR) -> np.ndarray:
