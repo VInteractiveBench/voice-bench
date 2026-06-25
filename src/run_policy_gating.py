@@ -34,7 +34,7 @@ def main() -> None:
     parser.add_argument("--personas", default="vi_north_normal,vi_central_normal,vi_south_normal")
     parser.add_argument("--episode-logs")
     parser.add_argument("--reference-agent", action="store_true")
-    parser.add_argument("--agent", choices=["openai_realtime", "gemini_live"], default=None)
+    parser.add_argument("--agent", choices=["openai_text", "openai_realtime", "gemini_live"], default=None)
     parser.add_argument("--model", default="gpt-realtime-mini")
     parser.add_argument("--output")
     parser.add_argument("--run-id")
@@ -46,6 +46,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.agent == "gemini_live" and args.model == "gpt-realtime-mini":
         args.model = os.getenv("GEMINI_MODEL") or "gemini-2.0-flash-live-001"
+    if args.agent == "openai_text" and args.model == "gpt-realtime-mini":
+        args.model = "gpt-4o-mini"
     if args.output is None:
         args.output = (
             "results/reference/policy_gating"

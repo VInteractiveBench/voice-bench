@@ -20,12 +20,13 @@ def resolve_asset_path(path: str | Path) -> Path:
 
 
 def read_json(path: str | Path) -> Any:
-    return json.loads(resolve_asset_path(path).read_text(encoding="utf-8"))
+    # utf-8-sig tolerates a UTF-8 BOM that some editors prepend on save.
+    return json.loads(resolve_asset_path(path).read_text(encoding="utf-8-sig"))
 
 
 def read_jsonl(path: str | Path) -> list[dict]:
     rows = []
-    for line in resolve_asset_path(path).read_text(encoding="utf-8").splitlines():
+    for line in resolve_asset_path(path).read_text(encoding="utf-8-sig").splitlines():
         if line.strip():
             rows.append(json.loads(line))
     return rows
