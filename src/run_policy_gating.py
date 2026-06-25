@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 
 from src.env import load_benchmark_env
 from src.evaluator.policy_gating_evaluator import (
@@ -9,6 +10,7 @@ from src.evaluator.policy_gating_evaluator import (
 )
 from src.io import load_base_tasks, load_overlays
 from src.orchestrator.full_duplex_orchestrator import provider_for_agent
+from src.orchestrator.policy_outcome import annotate_policy_episode
 from src.runner import (
     annotate_episodes,
     evaluate_episodes,
@@ -42,6 +44,8 @@ def main() -> None:
     )
     parser.add_argument("--merge-existing", action="store_true")
     args = parser.parse_args()
+    if args.agent == "gemini_live" and args.model == "gpt-realtime-mini":
+        args.model = os.getenv("GEMINI_MODEL") or "gemini-2.0-flash-live-001"
     if args.output is None:
         args.output = (
             "results/reference/policy_gating"
@@ -61,6 +65,11 @@ def main() -> None:
             modes=[MODE],
             personas=args.personas.split(","),
         )
+        overlay_map = {o["speech_overlay_id"]: o for o in overlays}
+        for episode in episodes:
+            overlay = overlay_map.get(episode.get("speech_overlay_id"))
+            if overlay is not None:
+                annotate_policy_episode(episode, overlay)
     else:
         episodes = load_or_build_episodes(
             args.episode_logs,

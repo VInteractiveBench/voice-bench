@@ -95,7 +95,7 @@ async def run_agent_episode(
             await _send_timeline_text(adapter, overlay, normalized_events, user_transcript, tick_ms)
             await _drain_adapter_events(adapter, server, normalized_events, assistant_transcript, failures)
         else:
-            text = overlay.get("spoken_utterance") or task.get("user_goal", "")
+            text = overlay.get("user_utterance") or overlay.get("spoken_utterance") or task.get("user_goal", "")
             user_transcript.append(text)
             normalized_events.append({"type": "user_audio_chunk_sent", "t_ms": 0, "text": text})
             await adapter.send_text(text)
@@ -253,7 +253,7 @@ async def _run_audio_episode(
         return
 
     condition = MODE_TO_AUDIO_CONDITION[mode]
-    text = overlay.get("spoken_utterance") or task.get("user_goal", "")
+    text = overlay.get("user_utterance") or overlay.get("spoken_utterance") or task.get("user_goal", "")
     samples = cache.get_or_build(text, accent, speed, condition)
     user_transcript.append(text)
     await _stream_audio(
