@@ -1,9 +1,8 @@
 """Cut the long in-cabin noise recordings into short, normalized segments.
 
-The 5 `data/voice/cabin-sound/In-Vehicle_Noise_MDT0*.wav` files are ~52 min, 44.1 kHz
-stereo and far too large to mix directly. This one-shot script streams each file,
-downmixes to mono, resamples to 24 kHz, and writes ~5 s PCM16 segments to
-`data/voice/cabin-sound/segments/`. The noise mixer then samples those segments.
+The `data/noise/cabin-sound/In-Vehicle_Noise_MDT0*.wav` recordings are downmixed to
+mono, resampled to 24 kHz, and written as ~5 s PCM16 segments to
+`data/noise/cabin-sound/segments/`. The noise mixer then samples those segments.
 
 Idempotent: skips if `segments/` already has files unless `--force` is passed.
 
@@ -21,7 +20,7 @@ sys.path.insert(0, str(ROOT))
 
 from src.audio import audio_io  # noqa: E402
 
-CABIN_DIR = ROOT / "data" / "voice" / "cabin-sound"
+CABIN_DIR = ROOT / "data" / "noise" / "cabin-sound"
 SEGMENT_DIR = CABIN_DIR / "segments"
 
 

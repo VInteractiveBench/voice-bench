@@ -1,6 +1,6 @@
 """Mix Vietnamese speech with cabin/road/street noise at a target SNR.
 
-Layer sources (under data/voice/, semantics confirmed by the project owner):
+Layer sources (under data/noise/, semantics confirmed by the project owner):
   - cabin-sound/segments/  in-cabin mixed noise bed (people/radio/engine), pre-segmented
   - engine-sound/          car-running / engine clips (road layer)
   - continuous/            outdoor street ambience (interaction_stress only)
@@ -19,7 +19,7 @@ import numpy as np
 from . import audio_io
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_DATA_ROOT = REPO_ROOT / "data" / "voice"
+DEFAULT_DATA_ROOT = REPO_ROOT / "data" / "noise"
 DEFAULT_CONDITIONS_DIR = REPO_ROOT / "src" / "audio_conditions"
 
 

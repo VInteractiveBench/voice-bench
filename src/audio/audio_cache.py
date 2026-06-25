@@ -16,7 +16,7 @@ from . import audio_io
 from .noise_mixer import DEFAULT_CONDITIONS_DIR, NoiseMixer
 from .tts_client import ViviTTS
 
-DEFAULT_CACHE_DIR = Path(__file__).resolve().parents[2] / "data" / "voice" / "_cache"
+DEFAULT_CACHE_DIR = Path(__file__).resolve().parents[2] / "data" / "noise" / "_cache"
 
 
 class AudioCache:
