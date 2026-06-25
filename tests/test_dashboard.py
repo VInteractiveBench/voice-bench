@@ -340,3 +340,7 @@ def test_policy_gating_summary_has_group_and_matrix(tmp_path):
     assert "forbidden_tool_call_rate" in keys
     assert len(summary["decision_confusion_matrix"]) == 16
     assert summary["state_pairs"]
+    # No null cards on the policy tab, and no FDRC-only yield-latency group.
+    assert "latency" not in group_ids
+    null_cards = [m["key"] for m in summary["metric_catalog"] if m["value"] is None]
+    assert null_cards == []

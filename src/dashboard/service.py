@@ -674,7 +674,9 @@ def _flatten_metrics(metrics: dict[str, Any], latency_summary: list[dict[str, An
 
 def _metric_group_applies(group_id: str, selected_track: str | None) -> bool:
     policy_only = {"policy_gating"}
-    fdrc_only = {"fdrc"}
+    # Latency here means interruption/yield latency, an FDRC-only concept; the
+    # policy-gating track has no yield events so those metrics would be null.
+    fdrc_only = {"fdrc", "latency"}
     if selected_track == POLICY_TRACK and group_id in fdrc_only:
         return False
     if selected_track == FDRC_TRACK and group_id in policy_only:
