@@ -37,6 +37,13 @@ def _valid_only(episodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [e for e in episodes if e.get("fdrc_validity", {}).get("valid")]
 
 
+def _applicable_rows(episodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        e for e in _rows(episodes)
+        if (e.get("latency") or {}).get("yield_applicable")
+    ]
+
+
 def _latency_rows(episodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [
         e
@@ -205,15 +212,16 @@ _EXPLAIN_SPECS: dict[str, dict[str, Any]] = {
     },
     "yield_latency_pass_rate": {
         "scope": "all",
-        "row_set": _completed_rows,
+        "row_set": _applicable_rows,
         "predicate": lambda e: "YIELD_LATENCY_TOO_HIGH" not in _failure_values(e),
         "unit": "rate",
-        "formula_vi": "yield pass = episode KHÔNG bị YIELD_LATENCY_TOO_HIGH ÷ episode hoàn tất",
-        "row_set_label_vi": "Episode hoàn tất (completed)",
+        "formula_vi": "yield pass = episode barge-in thực sự KHÔNG bị YIELD_LATENCY_TOO_HIGH ÷ episode có barge-in thực sự",
+        "row_set_label_vi": "Episode có barge-in thực sự (yield_applicable=true)",
         "numerator_label_vi": "Episode yield đúng hạn (không có YIELD_LATENCY_TOO_HIGH)",
-        "denominator_condition_vi": "Episode completed; evaluator có thể xác định kết quả final_pass.",
+        "denominator_condition_vi": "Chỉ tính episode có latency.yield_applicable=true (assistant đang nói khi bị ngắt).",
         "pass_condition_vi": "failure_types không chứa YIELD_LATENCY_TOO_HIGH.",
         "evaluation_checks_vi": [
+            "latency.yield_applicable",
             "voice_events.user_interrupt_start",
             "voice_events.assistant_speech_stop",
             "latency.yield_latency_ms",
@@ -424,16 +432,17 @@ _EXPLAIN_SPECS: dict[str, dict[str, Any]] = {
     },
     "yield_latency_p50_ms": {
         "scope": "all",
-        "row_set": _latency_rows,
+        "row_set": _applicable_rows,
         "special": "latency_percentile",
         "percentile": 0.50,
         "unit": "ms",
-        "formula_vi": "P50 yield latency = median của latency.yield_latency_ms sau khi sắp xếp tăng dần",
-        "row_set_label_vi": "Episode có latency.yield_latency_ms",
+        "formula_vi": "P50 yield latency = median của latency.yield_latency_ms trên episode có barge-in thực sự sau khi sắp xếp tăng dần",
+        "row_set_label_vi": "Episode có barge-in thực sự (yield_applicable=true)",
         "numerator_label_vi": "Giá trị median được chọn",
-        "denominator_condition_vi": "Mọi FDRC episode có latency.yield_latency_ms là số.",
+        "denominator_condition_vi": "Chỉ tính episode có latency.yield_applicable=true.",
         "pass_condition_vi": "Không có tử số boolean; metric lấy median của phân phối yield latency.",
         "evaluation_checks_vi": [
+            "latency.yield_applicable",
             "voice_events.user_interrupt_start",
             "voice_events.assistant_speech_stop",
             "latency.yield_latency_ms",
@@ -442,16 +451,17 @@ _EXPLAIN_SPECS: dict[str, dict[str, Any]] = {
     },
     "yield_latency_p95_ms": {
         "scope": "all",
-        "row_set": _latency_rows,
+        "row_set": _applicable_rows,
         "special": "latency_percentile",
         "percentile": 0.95,
         "unit": "ms",
-        "formula_vi": "P95 yield latency = latency tại index round((n - 1) × 0.95) sau khi sắp xếp tăng dần",
-        "row_set_label_vi": "Episode có latency.yield_latency_ms",
+        "formula_vi": "P95 yield latency = latency tại index round((n - 1) × 0.95) trên episode có barge-in thực sự sau khi sắp xếp tăng dần",
+        "row_set_label_vi": "Episode có barge-in thực sự (yield_applicable=true)",
         "numerator_label_vi": "Giá trị percentile được chọn",
-        "denominator_condition_vi": "Mọi FDRC episode có latency.yield_latency_ms là số.",
+        "denominator_condition_vi": "Chỉ tính episode có latency.yield_applicable=true.",
         "pass_condition_vi": "Không có tử số boolean; metric lấy phân vị 95 của phân phối yield latency.",
         "evaluation_checks_vi": [
+            "latency.yield_applicable",
             "voice_events.user_interrupt_start",
             "voice_events.assistant_speech_stop",
             "latency.yield_latency_ms",

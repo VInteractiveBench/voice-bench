@@ -55,3 +55,28 @@ def test_real_bargein_with_slow_yield_still_fails_yield():
     result = evaluate_fdrc_episode(episode, overlay, task)
     assert FailureType.YIELD_LATENCY_TOO_HIGH in result["failure_types"]
     assert result["repair"]["assistant_speaking_before_interrupt"] is True
+
+
+def test_contract_reports_yield_over_applicable_rows_only():
+    from src.evaluator.fdrc_contract import summarize_fdrc_contract
+
+    def row(applicable, yld, fail):
+        return {
+            "benchmark_track": "full_duplex_repair_to_commit",
+            "scores": {"final_pass": 0, "state_match": 0},
+            "repair": {"final_intent": "drive_system"},
+            "latency": {"yield_latency_ms": yld, "yield_applicable": applicable},
+            "failure_types": (["YIELD_LATENCY_TOO_HIGH"] if fail else []),
+        }
+
+    rows = [
+        row(False, 3392, False),  # not applicable — excluded from percentiles
+        row(False, 5401, False),
+        row(True, 650, False),    # applicable, passes
+        row(True, 1200, True),    # applicable, too slow
+    ]
+    m = summarize_fdrc_contract(rows)
+    assert m["yield_applicable_count"] == 2
+    assert m["yield_latency_p95_ms"] == 1200.0
+    # pass-rate over applicable rows only: 1 of 2 passed
+    assert m["yield_latency_pass_rate"] == 0.5

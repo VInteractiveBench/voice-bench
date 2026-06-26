@@ -90,9 +90,9 @@ def test_validity_metrics_match_summarize_fdrc_validity():
 
 def test_explain_supports_latency_percentiles():
     episodes = [
-        _episode(episode_id="a", latency={"yield_latency_ms": 100}),
-        _episode(episode_id="b", latency={"yield_latency_ms": 300}),
-        _episode(episode_id="c", latency={"yield_latency_ms": 900}),
+        _episode(episode_id="a", latency={"yield_latency_ms": 100, "yield_applicable": True}),
+        _episode(episode_id="b", latency={"yield_latency_ms": 300, "yield_applicable": True}),
+        _episode(episode_id="c", latency={"yield_latency_ms": 900, "yield_applicable": True}),
     ]
     p50 = explain_fdrc_metric("yield_latency_p50_ms", episodes)
     p95 = explain_fdrc_metric("yield_latency_p95_ms", episodes)
