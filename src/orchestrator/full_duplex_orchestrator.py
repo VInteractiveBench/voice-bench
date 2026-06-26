@@ -69,6 +69,12 @@ def _episode_id(
     return f"{overlay['speech_overlay_id']}:{mode}:{persona}{condition}:{agent}:{model}"
 
 
+def tool_schemas_for_agent(agent: str, domain: str | None) -> list[dict]:
+    # Only openai_text runs OpenAI strict mode; realtime and gemini do not enforce
+    # it, so they get non-strict schemas (optionals stay optional, not forced).
+    return get_openai_tool_schemas(domain, strict=(agent == "openai_text"))
+
+
 def build_adapter(agent: AgentName, model: str) -> ViviAgentAdapter:
     if agent == "openai_text":
         return OpenAITextViviAdapter(model=model)
@@ -95,7 +101,7 @@ async def run_agent_episode(
     sim_trace_dir: str = str(DEFAULT_SIM_TRACE_DIR),
 ) -> dict:
     adapter = build_adapter(agent, model)
-    tool_schemas = get_openai_tool_schemas(task["domain"])
+    tool_schemas = tool_schemas_for_agent(agent, task["domain"])
     tool_names = get_domain_tools(task["domain"])
     system_prompt = build_system_prompt(
         task=task,
