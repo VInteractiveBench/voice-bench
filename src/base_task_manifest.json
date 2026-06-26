@@ -737,6 +737,56 @@
     "required_communication": true
   },
   {
+    "id": "media_slot_volume_3_to_6",
+    "domain": "media_phone",
+    "user_goal": "Tăng âm lượng lên mức 6.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "media_control",
+        "args": {
+          "command": "set_volume",
+          "value": 6
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "media_control"
+    },
+    "expected_critical_slots": {
+      "command": "set_volume",
+      "value": 6
+    },
+    "required_communication": true
+  },
+  {
+    "id": "media_slot_volume_8_to_4",
+    "domain": "media_phone",
+    "user_goal": "Giảm âm lượng xuống mức 4.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "media_control",
+        "args": {
+          "command": "set_volume",
+          "value": 4
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "media_control"
+    },
+    "expected_critical_slots": {
+      "command": "set_volume",
+      "value": 4
+    },
+    "required_communication": true
+  },
+  {
     "id": "pg_climate_driver",
     "domain": "automotive",
     "user_goal": "Đặt điều hòa bên ghế lái 23 độ.",
