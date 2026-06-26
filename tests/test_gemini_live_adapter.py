@@ -129,6 +129,19 @@ import asyncio
 from src.adapters.gemini_live_vivi_adapter import GeminiLiveViviAdapter
 
 
+def test_realtime_close_swallows_websocket_drop():
+    from src.adapters.openai_realtime_vivi_adapter import OpenAIRealtimeViviAdapter
+
+    adapter = OpenAIRealtimeViviAdapter()
+
+    class _DroppedWS:
+        async def close(self):
+            raise RuntimeError("no close frame received or sent")
+
+    adapter.websocket = _DroppedWS()
+    asyncio.run(adapter.close())
+
+
 class _FakeSession:
     def __init__(self, messages):
         self._messages = messages

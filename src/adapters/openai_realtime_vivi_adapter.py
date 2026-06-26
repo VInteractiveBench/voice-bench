@@ -134,7 +134,12 @@ class OpenAIRealtimeViviAdapter(ViviAgentAdapter):
         if self._reader_task:
             self._reader_task.cancel()
         if self.websocket:
-            await self.websocket.close()
+            try:
+                await self.websocket.close()
+            except Exception:
+                # A dropped realtime socket may already be effectively closed.
+                # Teardown must not abort the batch after the episode is recorded.
+                pass
         await self._events.put(None)
 
     async def _send(self, payload: dict) -> None:
