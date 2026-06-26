@@ -546,7 +546,9 @@ def _evaluation_view(episodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     evaluated: list[dict[str, Any]] = []
     for episode in episodes:
         row = dict(episode)
-        overlay = overlays.get(row.get("speech_overlay_id"))
+        # Prefer the overlay snapshot carried by the episode (self-describing runs);
+        # fall back to the default overlays file for legacy episodes without one.
+        overlay = row.get("overlay_snapshot") or overlays.get(row.get("speech_overlay_id"))
         task = tasks.get(row.get("base_task_id"))
         if overlay is None or task is None:
             evaluated.append(row)

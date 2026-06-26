@@ -361,8 +361,13 @@ def test_dashboard_reevaluates_cancel_tool_attempt_as_failure(tmp_path):
 
 def test_dashboard_timeline_ui_labels_expected_speech_marker():
     app_js = Path("src/dashboard/static/app.js").read_text(encoding="utf-8")
-    assert "expected assistant speech window" in app_js
-    assert "expected scheduling marker, not an observed assistant action" in app_js
+    styles_css = Path("src/dashboard/static/styles.css").read_text(encoding="utf-8")
+    assert "cửa sổ phát lời dự kiến" in app_js
+    assert "mốc lập lịch dự kiến, không phải hành động trợ lý đã thực hiện" in app_js
+    assert "tl-event-note-speech" in app_js
+    assert "const isSpeechNote = Boolean(e.text);" in app_js
+    assert "font-weight: 800" in styles_css
+    assert "#071f3d" in styles_css
     assert "hủy lệnh được tôn trọng" in app_js
     assert "CANCEL_NOT_RESPECTED" in app_js
 
@@ -672,3 +677,26 @@ def test_policy_gating_summary_has_group_and_matrix(tmp_path):
     assert "latency" not in group_ids
     null_cards = [m["key"] for m in summary["metric_catalog"] if m["value"] is None]
     assert null_cards == []
+
+
+def test_evaluation_view_uses_embedded_snapshot_for_unknown_overlay_id():
+    # A v2 run whose speech_overlay_id is NOT in the default overlays file must still
+    # evaluate, by using the overlay_snapshot carried on the episode.
+    from src.io import load_base_tasks, load_overlays
+    from src.runner import reference_episode
+    from src.dashboard.service import _evaluation_view
+
+    tasks = load_base_tasks()
+    overlay = dict(next(r for r in load_overlays()
+                        if r["benchmark_track"] == "full_duplex_repair_to_commit"))
+    task = tasks[overlay["base_task_id"]]
+    episode = reference_episode(task, overlay, "full_duplex_repair_to_commit", "vi_north_normal")
+    episode["run_kind"] = "provider"
+    episode["is_reference"] = False
+    overlay["speech_overlay_id"] = "fdrc_v2_999_not_in_default_file"
+    episode["speech_overlay_id"] = "fdrc_v2_999_not_in_default_file"
+    episode["overlay_snapshot"] = overlay
+
+    [row] = _evaluation_view([episode])
+    assert "unknown_overlay" not in str(row.get("failure_types", []))
+    assert row.get("scores", {}).get("final_pass") is not None
