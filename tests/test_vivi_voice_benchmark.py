@@ -64,6 +64,13 @@ def test_fdrc_golden_dataset_balances_modes_accents_and_domains():
     }
 
 
+def test_v2_90_dataset_passes_preflight():
+    tasks = load_base_tasks()
+    overlays = load_overlays("fdrc_golden_enriched_v2_90.jsonl")
+    assert len(overlays) == 90
+    preflight_validate_assets(tasks, overlays, require_mvp_counts=False)
+
+
 def test_fdrc_reference_builder_expands_audio_conditions_with_unique_episode_ids():
     tasks = load_base_tasks()
     overlay = next(
