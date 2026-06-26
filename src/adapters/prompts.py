@@ -19,12 +19,18 @@ You must:
 11. Respond concisely in Vietnamese.
 """
 
-FDRC_PROMPT = """Full-duplex repair-to-commit rules:
-1. Treat the latest user utterance as authoritative.
-2. If the user says a correction such as "à không", "không phải", "đổi thành", or "ý tôi là", ignore the old intent and execute only the corrected final intent.
-3. If the user says "thôi", "hủy", "bỏ đi", or any cancellation, do not call any side-effect tool.
-4. Do not commit a tool call while the user is still correcting or before the repair utterance has been processed.
-5. If you are already speaking and the user interrupts, stop responding to the old intent and handle the interruption.
+FDRC_PROMPT = """Quy tắc full-duplex sửa lệnh trước khi chốt (repair-to-commit) — BẮT BUỘC:
+
+1. LUÔN coi câu nói MỚI NHẤT của người dùng là quyền cao nhất. Mọi câu trước đó chỉ là dự định, chưa phải lệnh chốt.
+2. CHỈ gọi tool (chốt hành động) SAU KHI câu sửa cuối cùng đã được nghe trọn vẹn và xử lý. Không bao giờ chốt khi người dùng còn đang nói/sửa.
+3. SỬA THỰC THỂ/GIÁ TRỊ ("à không", "không phải", "đổi thành", "ý tôi là", "lại sang"): BỎ dự định cũ, CHỈ thực hiện đúng dự định cuối cùng — đúng tool, đúng tham số mới. Tuyệt đối KHÔNG gọi tool với giá trị cũ.
+4. HỦY ("thôi", "hủy", "bỏ đi", "không cần nữa", "khỏi"): KHÔNG gọi BẤT KỲ tool có side-effect NÀO. Không chốt gì cả. Chỉ xác nhận ngắn gọn bằng lời rằng đã hủy.
+5. Nếu bạn đang nói mà người dùng chen ngang: DỪNG ngay phản hồi cho dự định cũ và xử lý câu chen ngang.
+6. KHÔNG gọi lại tool đã đúng (không chốt trùng). Một dự định cuối cùng = đúng một lần chốt.
+
+Ví dụ (sửa thực thể): "Chuyển sang chế độ Sport... à khoan, đổi lại sang Eco." → CHỈ gọi drive_system(device=drive_mode, value=eco). KHÔNG gọi value=sport.
+Ví dụ (sửa slot): "Đặt điều hòa 26 độ... à không, 24 độ thôi." → CHỈ gọi climate_control(device=temp, value="24"). KHÔNG gọi value="26".
+Ví dụ (hủy): "Gọi cho Minh... thôi khỏi, hủy đi." → KHÔNG gọi phone_manager. Chỉ nói "Đã hủy."
 """
 
 POLICY_PROMPT = """In-car command gating rules. You are given the current vehicle_state. Choose exactly ONE behavior:

@@ -563,3 +563,20 @@ def test_automotive_manifest_preserves_domain_expected_actions():
         for tool_call in overlay.get("expected_tool_calls", []):
             assert validate_tool_scope(tool_call["tool"]) is None
             assert not validate_tool_schema(tool_call["tool"], tool_call["args"])
+
+
+def test_fdrc_prompt_has_hard_cancel_and_repair_examples():
+    from src.adapters.prompts import build_system_prompt
+
+    tasks = load_base_tasks()
+    overlay = next(r for r in load_overlays()
+                   if r["benchmark_track"] == "full_duplex_repair_to_commit")
+    task = tasks[overlay["base_task_id"]]
+    prompt = build_system_prompt(
+        task=task, overlay=overlay, mode="full_duplex_repair_to_commit",
+        tool_names=["drive_system"],
+    )
+    # Hard cancel: an explicit "do not call ANY tool" rule, plus worked examples.
+    assert "hủy" in prompt and "KHÔNG gọi" in prompt
+    assert "Ví dụ" in prompt          # at least one worked example block
+    assert "Eco" in prompt or "eco" in prompt  # entity-repair example present
