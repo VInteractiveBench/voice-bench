@@ -69,8 +69,15 @@ def validate_tool_schema(tool_name: str, arguments: dict) -> list[dict]:
         errors.append({"field": "target", "reason": "required_for_command"})
     if tool_name == "media_control" and arguments.get("command") == "seek" and "value" not in arguments:
         errors.append({"field": "value", "reason": "required_for_command"})
+    if tool_name == "media_control" and arguments.get("command") == "set_volume":
+        if "value" not in arguments or not isinstance(arguments["value"], int):
+            errors.append({"field": "value", "reason": "required_for_command"})
     if tool_name == "phone_manager" and arguments.get("intent") in {"call", "search", "complaint", "confirm_call"} and "target" not in arguments:
         errors.append({"field": "target", "reason": "required_for_intent"})
     if tool_name == "check_traffic" and not any(k in arguments for k in ("location_query", "lat", "lng")):
         errors.append({"field": "location", "reason": "one_location_required"})
+    if tool_name == "compute_routes":
+        has_coords = "dest_lat" in arguments and "dest_lng" in arguments
+        if not has_coords and not arguments.get("dest_name"):
+            errors.append({"field": "dest", "reason": "coords_or_dest_name_required"})
     return errors

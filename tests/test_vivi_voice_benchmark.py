@@ -178,6 +178,19 @@ def test_compute_routes_accepts_array_avoid_and_legacy_string_avoid():
     assert not validate_tool_schema("compute_routes", {**base_args, "avoid": ""})
 
 
+def test_compute_routes_accepts_dest_name_without_coords():
+    assert not validate_tool_schema(
+        "compute_routes",
+        {"dest_name": "Vincom Bà Triệu", "routing_mode": "low_traffic"},
+    )
+    assert validate_tool_schema("compute_routes", {"routing_mode": "fast"})
+
+
+def test_media_control_accepts_set_volume():
+    assert not validate_tool_schema("media_control", {"command": "set_volume", "value": 4})
+    assert validate_tool_schema("media_control", {"command": "set_volume"})
+
+
 def test_openai_tool_schemas_are_strict_and_domain_scoped():
     schemas = get_openai_tool_schemas("navigation")
     names = {schema["name"] for schema in schemas}
