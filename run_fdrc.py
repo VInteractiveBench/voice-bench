@@ -29,6 +29,7 @@ from src.schema import preflight_validate_assets
 from src.tick_scheduler import schedule_timeline
 
 FDRC_AUDIO_CONDITIONS = ("clean", "cabin_noise", "interaction_stress")
+DEFAULT_FDRC_OVERLAYS = "fdrc_golden_enriched_v2_90.jsonl"
 
 
 def _inspection_command(argv: list[str]) -> None:
@@ -53,7 +54,7 @@ def main() -> None:
         return
     parser = argparse.ArgumentParser(description="Evaluate Vivi full-duplex repair before commit.")
     parser.add_argument("--domains", default="automotive,navigation,media_phone")
-    parser.add_argument("--overlays", default="src/speech_task_overlays.jsonl")
+    parser.add_argument("--overlays", default=DEFAULT_FDRC_OVERLAYS)
     parser.add_argument("--personas", default="vi_north_normal,vi_central_normal,vi_south_normal")
     parser.add_argument(
         "--audio-condition",
