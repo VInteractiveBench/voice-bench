@@ -176,7 +176,7 @@ def retention_overlays() -> list[dict]:
 def write_domains() -> None:
     for domain in ("navigation", "media_phone"):
         tasks = [row for row in RETENTION if row["domain"] == domain]
-        directory = ROOT / "data" / "tau2" / "domains" / domain
+        directory = ROOT / "data" / "domains" / domain
         dump_json(directory / "tasks.json", tasks)
         dump_json(directory / "db.json", {"committed_intent": None, "domain": domain})
         (directory / "policy.md").write_text(

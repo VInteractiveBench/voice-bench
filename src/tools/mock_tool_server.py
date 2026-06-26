@@ -24,7 +24,7 @@ class MockToolServer:
         self.domain = domain
         self.task = task
         self.overlay = overlay or {}
-        self.db_path = Path("data") / "tau2" / "domains" / domain / "db.json"
+        self.db_path = Path("data") / "domains" / domain / "db.json"
         self.initial_state = deepcopy(task.get("initial_state", {}))
         self.state = self._load_state()
         self.tool_call_log: list[dict] = []

@@ -17,7 +17,7 @@ data/recordings/
 __pycache__/
 *.py[cod]
 *$py.class
-/results 
+
 # C extensions
 *.so
 
@@ -187,5 +187,5 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
-results/
-/data
+/results/*
+/data/*

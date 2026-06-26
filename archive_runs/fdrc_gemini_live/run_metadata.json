@@ -1,0 +1,37 @@
+{
+  "run_id": "fdrc_gemini_live",
+  "run_kind": "provider",
+  "created_at": "2026-06-25T06:55:48.244531+00:00",
+  "benchmark": "full_duplex_repair_to_commit",
+  "benchmark_track": "full_duplex_repair_to_commit",
+  "providers": [
+    "google"
+  ],
+  "models": [
+    "gemini-2.5-flash-native-audio-latest"
+  ],
+  "adapters": [
+    "gemini_live"
+  ],
+  "fdrc_yield_modes": [
+    "native_yield"
+  ],
+  "tick_ms": 200,
+  "episode_set_hash": "a791af7dc8d0a1f753b0dfbeefe196e49f0441c7cf468e9859223c765cb74628",
+  "overlay_hash": "e325fb09a832661146a1fd3a439c5c5d60603ca841cb48d1177294d8c528d732",
+  "persona_hash": "20ed7a2f425cd7315b501f09b0ce79fd53893399eedb3000d08860259e22f777",
+  "domains": [
+    "automotive"
+  ],
+  "personas": [
+    "vi_north_normal"
+  ],
+  "audio_conditions": [
+    "interaction_stress"
+  ],
+  "episode_count": 8,
+  "provider_episode_count": 8,
+  "reference_episode_count": 0,
+  "is_reference": false,
+  "mixed_track": false
+}

@@ -11,7 +11,12 @@ from src.evaluator.policy_gating_evaluator import evaluate_policy_gating_episode
 from src.evaluator.tool_schema_validator import validate_tool_schema
 from src.evaluator.tool_scope_validator import validate_tool_scope
 from src.io import load_base_tasks, load_overlays
-from src.runner import evaluate_episodes, merge_existing_episodes, reference_episode
+from src.runner import (
+    evaluate_episodes,
+    load_or_build_episodes,
+    merge_existing_episodes,
+    reference_episode,
+)
 from src.schema import preflight_validate_assets
 from src.tools import MockToolServer, get_openai_tool_schemas
 
@@ -34,6 +39,58 @@ def test_mvp_overlay_scope_and_distribution():
         "media": 4,
         "cancel": 2,
     }
+
+
+def test_fdrc_golden_dataset_balances_modes_accents_and_domains():
+    golden = load_overlays("src/fdrc_golden_dataset.jsonl")
+    tasks = load_base_tasks()
+    preflight_validate_assets(tasks, golden, require_mvp_counts=False)
+    assert len(golden) == 27
+    assert {row["golden_dataset_id"] for row in golden} == {"fdrc_balanced_v1"}
+    assert Counter(row["domain"] for row in golden) == {
+        "automotive": 9,
+        "navigation": 9,
+        "media_phone": 9,
+    }
+    assert Counter(row["accent_region"] for row in golden) == {
+        "north": 9,
+        "central": 9,
+        "south": 9,
+    }
+    assert Counter(row["repair_mode"] for row in golden) == {
+        "entity_repair": 9,
+        "slot_repair": 9,
+        "cancel_before_commit": 9,
+    }
+
+
+def test_fdrc_reference_builder_expands_audio_conditions_with_unique_episode_ids():
+    tasks = load_base_tasks()
+    overlay = next(
+        row
+        for row in load_overlays()
+        if row["benchmark_track"] == "full_duplex_repair_to_commit"
+    )
+    episodes = load_or_build_episodes(
+        None,
+        [overlay],
+        tasks,
+        ["full_duplex_repair_to_commit"],
+        ["vi_north_normal"],
+        True,
+        audio_condition_ids=["clean", "cabin_noise", "interaction_stress"],
+    )
+
+    assert [episode["audio_condition_id"] for episode in episodes] == [
+        "clean",
+        "cabin_noise",
+        "interaction_stress",
+    ]
+    assert len({episode["episode_id"] for episode in episodes}) == 3
+    assert all(
+        episode["audio_condition_id"] in episode["episode_id"]
+        for episode in episodes
+    )
 
 
 def test_asset_preflight_accepts_committed_mvp_assets():

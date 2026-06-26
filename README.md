@@ -22,6 +22,11 @@ Dự án tập trung vào hai benchmark:
 | Policy-Grounded Voice Command Gating | Khi user ra lệnh bằng giọng nói, Vivi có chọn đúng execute/clarify/refuse/defer theo policy và trạng thái xe không? |
 | Full-Duplex Repair-to-Commit | Khi user chen ngang để sửa hoặc hủy, Vivi có dừng lại, bỏ ý định cũ, và chỉ commit ý định cuối cùng đúng thời điểm không? |
 
+
+Full-Duplex: overview + tool/state + policy + fdrc + latency + contract.
+Policy Gating: overview + tool/state + policy + policy_gating (8 metric) + contract, kèm confusion matrix + state-pair view + episode explorer (72/72).
+
+
 Tài liệu chi tiết:
 
 - [Benchmark 1: Full-Duplex Repair-to-Commit](docs/benchmark_1_full_duplex_repair_to_commit.md)

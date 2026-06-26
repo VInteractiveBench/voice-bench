@@ -94,10 +94,15 @@ def classify_fdrc_validity(
 
     interrupt = observed_event_time(events, "user_interrupt_start")
     repair_transcript = _observed_transcript_after(normalized, interrupt)
-    if repair_transcript and not _transcript_matches_expected(
-        repair_transcript, overlay.get("repair_utterance", "")
-    ):
-        reasons.append(INVALID_TRANSCRIPT)
+    # ASR quality is a separate axis from dialog/task capability and is unreliable for
+    # some providers (e.g. Gemini native-audio mis-transcribes Vietnamese). Repair-audio
+    # delivery is already evidenced by repair_audio_start / overlap audio events, so the
+    # transcript-content match is recorded as a non-gating diagnostic, not a validity gate.
+    asr_match: bool | None = None
+    if repair_transcript:
+        asr_match = _transcript_matches_expected(
+            repair_transcript, overlay.get("repair_utterance", "")
+        )
 
     tool_calls = episode.get("tool_calls", []) or []
     if tool_calls:
@@ -118,6 +123,7 @@ def classify_fdrc_validity(
         "valid": not deduped,
         "reasons": deduped,
         "observed_repair_transcript": repair_transcript,
+        "repair_transcript_asr_match": asr_match,
         "missing_observed_events": missing_observed,
     }
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import sys
 import asyncio
 import hashlib
 from collections import Counter
@@ -11,7 +12,7 @@ from pathlib import Path
 from typing import Callable
 
 from .io import load_base_tasks, load_overlays, read_jsonl, write_json, write_jsonl
-from .orchestrator.full_duplex_orchestrator import run_agent_episode
+from .orchestrator.full_duplex_orchestrator import failed_episode_stub, run_agent_episode
 from .schema import MODE_TO_AUDIO_CONDITION, invalid_episode_result, validate_episode_log
 
 REFERENCE_KINDS = {"reference", "sample", "internal"}
@@ -22,7 +23,27 @@ def select_overlays(path: str, track: str, domains: set[str] | None = None) -> l
     return [row for row in rows if domains is None or row["domain"] in domains]
 
 
-def reference_episode(task: dict, overlay: dict, mode: str, persona: str) -> dict:
+def _conditioned_episode_id(
+    overlay: dict,
+    mode: str,
+    persona: str,
+    audio_condition_id: str | None = None,
+    *parts: str,
+) -> str:
+    base = f"{overlay['speech_overlay_id']}:{mode}:{persona}"
+    if audio_condition_id:
+        base = f"{base}:{audio_condition_id}"
+    suffix = ":".join(str(part) for part in parts if part)
+    return f"{base}:{suffix}" if suffix else base
+
+
+def reference_episode(
+    task: dict,
+    overlay: dict,
+    mode: str,
+    persona: str,
+    audio_condition_id: str | None = None,
+) -> dict:
     expected_calls = overlay.get("expected_tool_calls", task.get("expected_tool_calls", []))
     events = deepcopy(overlay.get("voice_timeline", []))
     interrupt = next(
@@ -31,11 +52,14 @@ def reference_episode(task: dict, overlay: dict, mode: str, persona: str) -> dic
     if interrupt is not None:
         events.append({"t_ms": interrupt + 400, "event": "assistant_yielded"})
     persona_parts = persona.removeprefix("vi_").rsplit("_", 1)
+    condition = audio_condition_id or MODE_TO_AUDIO_CONDITION[mode]
     if overlay.get("benchmark_track") == "voice_policy_command_gating":
         decision = (overlay.get("expected_behavior") or {}).get("type", "refuse")
         policy_tools = overlay.get("expected_tools", []) if decision == "execute" else []
         return {
-            "episode_id": f"{overlay['speech_overlay_id']}:{mode}:{persona}",
+            "episode_id": _conditioned_episode_id(
+                overlay, mode, persona, audio_condition_id
+            ),
             "base_task_id": task["id"],
             "speech_overlay_id": overlay["speech_overlay_id"],
             "benchmark_track": overlay["benchmark_track"],
@@ -43,7 +67,7 @@ def reference_episode(task: dict, overlay: dict, mode: str, persona: str) -> dic
             "mode": mode,
             "accent_region": persona_parts[0],
             "speech_speed": persona_parts[1],
-            "audio_condition_id": MODE_TO_AUDIO_CONDITION[mode],
+            "audio_condition_id": condition,
             "run_kind": "reference",
             "is_reference": True,
             "agent": "reference_agent",
@@ -73,7 +97,9 @@ def reference_episode(task: dict, overlay: dict, mode: str, persona: str) -> dic
             "failure_types": [],
         }
     return {
-        "episode_id": f"{overlay['speech_overlay_id']}:{mode}:{persona}",
+        "episode_id": _conditioned_episode_id(
+            overlay, mode, persona, audio_condition_id
+        ),
         "base_task_id": task["id"],
         "speech_overlay_id": overlay["speech_overlay_id"],
         "benchmark_track": overlay["benchmark_track"],
@@ -81,7 +107,7 @@ def reference_episode(task: dict, overlay: dict, mode: str, persona: str) -> dic
         "mode": mode,
         "accent_region": persona_parts[0],
         "speech_speed": persona_parts[1],
-        "audio_condition_id": MODE_TO_AUDIO_CONDITION[mode],
+        "audio_condition_id": condition,
         "run_kind": "reference",
         "is_reference": True,
         "agent": "reference_agent",
@@ -260,16 +286,24 @@ def load_or_build_episodes(
     modes: list[str],
     personas: list[str],
     reference_agent: bool,
+    audio_condition_ids: list[str] | None = None,
 ) -> list[dict]:
     if episode_logs:
         return read_jsonl(episode_logs)
     if not reference_agent:
         raise ValueError("--episode-logs is required unless --reference-agent is set")
     return [
-        reference_episode(tasks[overlay["base_task_id"]], overlay, mode, persona)
+        reference_episode(
+            tasks[overlay["base_task_id"]],
+            overlay,
+            mode,
+            persona,
+            audio_condition_id=audio_condition_id,
+        )
         for overlay in overlays
         for mode in modes
         for persona in personas
+        for audio_condition_id in (audio_condition_ids or [None])
     ]
 
 
@@ -283,25 +317,74 @@ async def run_agent_episodes_async(
     personas: list[str],
     tick_ms: int = 200,
     fdrc_yield_mode: str = "native_yield",
+    persona_from_overlay: bool = False,
+    audio_condition_ids: list[str] | None = None,
+    simulator_mode: str = "off",
+    simulator_model: str = "gpt-4o-mini",
+    sim_trace_dir: str = "data/simulator_traces",
 ) -> list[dict]:
     episodes = []
     for overlay in overlays:
         task = tasks[overlay["base_task_id"]]
+        # Accent-balanced datasets (e.g. fdrc_balanced_v2) bake one accent per
+        # overlay, so the persona must come from the overlay itself — multiplying
+        # by the persona list would duplicate every row across accents.
+        episode_personas = (
+            [f"vi_{overlay['accent_region']}_{overlay['speech_speed']}"]
+            if persona_from_overlay
+            else personas
+        )
         for mode in modes:
-            for persona in personas:
-                episodes.append(
-                    await run_agent_episode(
-                        agent=agent,
-                        model=model,
-                        task=task,
-                        overlay=overlay,
-                        mode=mode,
-                        persona=persona,
-                        tick_ms=tick_ms,
-                        fdrc_yield_mode=fdrc_yield_mode,
+            for persona in episode_personas:
+                for audio_condition_id in (audio_condition_ids or [None]):
+                    episodes.append(
+                        await _run_one_episode_resilient(
+                            agent=agent,
+                            model=model,
+                            task=task,
+                            overlay=overlay,
+                            mode=mode,
+                            persona=persona,
+                            tick_ms=tick_ms,
+                            fdrc_yield_mode=fdrc_yield_mode,
+                            audio_condition_id=audio_condition_id,
+                            simulator_mode=simulator_mode,
+                            simulator_model=simulator_model,
+                            sim_trace_dir=sim_trace_dir,
+                        )
                     )
-                )
     return episodes
+
+
+async def _run_one_episode_resilient(*, agent, model, task, overlay, mode, persona,
+                                     tick_ms, fdrc_yield_mode, audio_condition_id,
+                                     simulator_mode, simulator_model, sim_trace_dir):
+    """Run one episode; on a transient runtime failure (e.g. a realtime websocket drop)
+    retry once, then record a failed-episode stub so a single bad episode never aborts
+    the whole batch (which would discard every already-completed episode)."""
+    last_error: BaseException | None = None
+    for attempt in (1, 2):
+        try:
+            return await run_agent_episode(
+                agent=agent, model=model, task=task, overlay=overlay, mode=mode,
+                persona=persona, tick_ms=tick_ms, fdrc_yield_mode=fdrc_yield_mode,
+                audio_condition_id=audio_condition_id, simulator_mode=simulator_mode,
+                simulator_model=simulator_model, sim_trace_dir=sim_trace_dir,
+            )
+        except Exception as exc:  # noqa: BLE001 - episode isolation is intentional
+            last_error = exc
+            overlay_id = overlay.get("speech_overlay_id")
+            print(
+                f"[runner] episode failed (attempt {attempt}/2) "
+                f"overlay={overlay_id} persona={persona} agent={agent}: "
+                f"{type(exc).__name__}: {exc}",
+                file=sys.stderr,
+            )
+    return failed_episode_stub(
+        agent=agent, model=model, task=task, overlay=overlay, mode=mode,
+        persona=persona, audio_condition_id=audio_condition_id,
+        error=last_error, fdrc_yield_mode=fdrc_yield_mode,
+    )
 
 
 def run_agent_episodes(**kwargs) -> list[dict]:

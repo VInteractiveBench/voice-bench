@@ -333,13 +333,14 @@
 
   // ---- hash routing ----------------------------------------------
   // Parse "#fdrc/runs/:id/episodes/:eid" into a structured route.
-  const KNOWN_TABS = new Set(["fdrc", "policy"]);
+  const KNOWN_TABS = new Set(["fdrc", "policy", "compare"]);
 
   function parseRoute(hash) {
     const raw = String(hash || "").replace(/^#\/?/, "");
     const parts = raw.split("/").filter(Boolean);
     if (parts.length === 0) return { tab: "fdrc", view: "overview" };
     const tab = KNOWN_TABS.has(parts[0]) ? parts[0] : "fdrc";
+    if (tab === "compare") return { tab, view: "compare" };
     if (parts[1] === "runs" && parts[2]) {
       const runId = decodeURIComponent(parts[2]);
       if (parts[3] === "episodes" && parts[4]) {

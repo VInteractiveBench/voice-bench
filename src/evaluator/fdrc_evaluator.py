@@ -138,18 +138,23 @@ def evaluate_fdrc_episode(episode: dict, overlay: dict, task: dict) -> dict:
         result["failure_types"].append(FailureType.CANCEL_NOT_RESPECTED)
     if not correction_uptaken:
         result["failure_types"].append(FailureType.CORRECTION_NOT_UPTAKEN)
-    if not yield_result["passed"]:
+    # Yield latency only applies when a real barge-in occurred (the assistant was
+    # already speaking when the interrupt fired). If the provider had not started
+    # speaking yet, there is nothing to interrupt, so yield latency is N/A, not a fail.
+    if assistant_speaking_before_interrupt and not yield_result["passed"]:
         result["failure_types"].append(FailureType.YIELD_LATENCY_TOO_HIGH)
     if missing_observed:
         result["failure_types"].append(FailureType.MISSING_OBSERVED_EVENT)
     if not fdrc_validity.get("valid"):
         result["failure_types"].extend(fdrc_validity.get("reasons", []))
+    # `not assistant_speaking_before_interrupt` is intentionally NOT a policy violation:
+    # it reflects response latency (the assistant hadn't started speaking when the
+    # interrupt fired), not a policy breach. It is recorded as a diagnostic instead.
     if (
         early_commit
         or commit_before_repair_processed
         or continued_old_confirmation
         or duplicate_final_commit
-        or not assistant_speaking_before_interrupt
     ):
         result["failure_types"].append(FailureType.POLICY_VIOLATION)
     result["failure_types"] = list(dict.fromkeys(result["failure_types"]))
@@ -174,9 +179,12 @@ def evaluate_fdrc_episode(episode: dict, overlay: dict, task: dict) -> dict:
     result["latency"] = {
         **result.get("latency", {}),
         "yield_latency_ms": yield_result["yield_latency_ms"],
+        "yield_applicable": assistant_speaking_before_interrupt,
     }
     result["scores"]["voice_pass"] = int(
-        correction_uptaken and not forbidden_called and yield_result["passed"]
+        correction_uptaken
+        and not forbidden_called
+        and (yield_result["passed"] or not assistant_speaking_before_interrupt)
     )
     result["scores"]["final_pass"] = int(
         result["scores"]["task_pass"]

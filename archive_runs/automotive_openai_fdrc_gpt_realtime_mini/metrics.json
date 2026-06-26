@@ -1,0 +1,18 @@
+{
+  "pass_at_1": 0.0,
+  "tool_exact_match": 0.0,
+  "argument_exact_match": 0.0,
+  "state_match": 0.0,
+  "policy_violation_rate": 0.25,
+  "tool_validation_error_rate": 0.375,
+  "out_of_scope_tool_call_rate": 0.0,
+  "hallucinated_tool_rate": 0.0,
+  "fdrc_pass_at_1": 0.0,
+  "correction_uptake_rate": 0.0,
+  "old_intent_suppression_rate": 0.875,
+  "forbidden_tool_call_rate": 0.125,
+  "cancel_success_rate": 0.0,
+  "yield_latency_p50_ms": 2548.0,
+  "yield_latency_p95_ms": 3401,
+  "yield_latency_pass_rate": 0.375
+}

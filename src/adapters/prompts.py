@@ -37,7 +37,7 @@ POLICY_PROMPT = """In-car command gating rules. You are given the current vehicl
 
 
 def load_domain_policy(domain: str) -> str:
-    path = Path("data") / "tau2" / "domains" / domain / "policy.md"
+    path = Path("data") / "domains" / domain / "policy.md"
     return path.read_text(encoding="utf-8") if path.exists() else ""
 
 
