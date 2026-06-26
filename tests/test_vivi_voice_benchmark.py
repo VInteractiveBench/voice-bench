@@ -476,6 +476,16 @@ def test_fdrc_provider_fails_when_final_commit_destination_is_wrong():
     assert result["critical_slot_result"]["passed"] is False
 
 
+def test_evaluate_episodes_embeds_overlay_snapshot():
+    tasks = load_base_tasks()
+    overlay = next(r for r in load_overlays() if r["benchmark_track"] == "full_duplex_repair_to_commit")
+    task = tasks[overlay["base_task_id"]]
+    episode = reference_episode(task, overlay, "full_duplex_repair_to_commit", "vi_north_normal")
+    [evaluated] = evaluate_episodes([episode], [overlay], tasks, evaluate_fdrc_episode)
+    assert evaluated["overlay_snapshot"]["speech_overlay_id"] == overlay["speech_overlay_id"]
+    assert evaluated["overlay_snapshot"]["expected_tool_calls"] == overlay.get("expected_tool_calls", [])
+
+
 def test_merge_existing_episodes_deduplicates_by_episode_id(tmp_path):
     task = load_base_tasks()["navigation_base_010"]
     overlay = next(row for row in load_overlays() if row["base_task_id"] == "navigation_base_010")

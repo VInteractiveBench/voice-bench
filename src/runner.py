@@ -51,6 +51,7 @@ def reference_episode(
     )
     if interrupt is not None:
         events.append({"t_ms": interrupt + 400, "event": "assistant_yielded"})
+        events.sort(key=lambda e: e["t_ms"])
     persona_parts = persona.removeprefix("vi_").rsplit("_", 1)
     condition = audio_condition_id or MODE_TO_AUDIO_CONDITION[mode]
     if overlay.get("benchmark_track") == "voice_policy_command_gating":
@@ -426,7 +427,9 @@ def evaluate_episodes(
         if errors:
             evaluated.append(invalid_episode_result(episode, errors))
             continue
-        evaluated.append(evaluator(episode, overlay, task))
+        result = evaluator(episode, overlay, task)
+        result["overlay_snapshot"] = overlay
+        evaluated.append(result)
     return evaluated
 
 
