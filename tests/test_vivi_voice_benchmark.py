@@ -501,6 +501,36 @@ def test_all_overlay_tools_are_official_and_in_scope():
             assert not validate_tool_schema(tool_call["tool"], tool_call["args"])
 
 
+def test_non_strict_schema_does_not_force_optional_fields():
+    # Realtime/Gemini run non-strict: optional fields must NOT appear in `required`,
+    # so the model is not forced to emit (and mis-type) media_control.value /
+    # compute_routes.avoid. Required stays minimal and truthful.
+    from src.tools.vivi_tool_schema import tool_to_openai_schema
+
+    media = tool_to_openai_schema("media_control", strict=False)
+    assert media["parameters"]["required"] == ["command"]
+    assert "value" in media["parameters"]["properties"]
+    assert media["parameters"]["properties"]["value"]["type"] == "integer"  # not nullable
+    assert "strict" not in media
+
+    routes = tool_to_openai_schema("compute_routes", strict=False)
+    # Optional fields stay OUT of `required`. Do NOT assert the exact required set —
+    # a later phase makes compute_routes coords optional. `avoid` is an array.
+    assert "avoid" not in routes["parameters"]["required"]
+    assert "routing_mode" not in routes["parameters"]["required"]
+    assert routes["parameters"]["properties"]["avoid"]["type"] == "array"
+
+
+def test_strict_schema_unchanged_default_behavior():
+    from src.tools.vivi_tool_schema import tool_to_openai_schema
+
+    media = tool_to_openai_schema("media_control")  # default strict=True
+    # strict mode keeps the all-required + nullable convention
+    assert "value" in media["parameters"]["required"]
+    assert media["strict"] is True
+    assert media["parameters"]["properties"]["value"]["type"] == ["integer", "null"]
+
+
 def test_automotive_manifest_preserves_domain_expected_actions():
     manifest_path = Path("data/tau2/domains/automotive/tasks.json")
     if not manifest_path.exists():
