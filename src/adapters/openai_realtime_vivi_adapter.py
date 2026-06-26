@@ -86,21 +86,23 @@ class OpenAIRealtimeViviAdapter(ViviAgentAdapter):
                     "role": "user",
                     "content": [{"type": "input_text", "text": text}],
                 },
-            }
+            },
+            tolerate_drop=True,
         )
-        await self._send({"type": "response.create"})
+        await self._send({"type": "response.create"}, tolerate_drop=True)
 
     async def send_audio_chunk(self, audio_bytes: bytes, timestamp_ms: int) -> None:
         await self._send(
             {
                 "type": "input_audio_buffer.append",
                 "audio": base64.b64encode(audio_bytes).decode("ascii"),
-            }
+            },
+            tolerate_drop=True,
         )
 
     async def commit_audio_turn(self) -> None:
-        await self._send({"type": "input_audio_buffer.commit"})
-        await self._send({"type": "response.create"})
+        await self._send({"type": "input_audio_buffer.commit"}, tolerate_drop=True)
+        await self._send({"type": "response.create"}, tolerate_drop=True)
 
     async def receive_events(self) -> AsyncIterator[NormalizedEvent]:
         while True:
@@ -123,12 +125,13 @@ class OpenAIRealtimeViviAdapter(ViviAgentAdapter):
                     "call_id": call_id,
                     "output": json.dumps(result, ensure_ascii=False),
                 },
-            }
+            },
+            tolerate_drop=True,
         )
-        await self._send({"type": "response.create"})
+        await self._send({"type": "response.create"}, tolerate_drop=True)
 
     async def cancel_response(self) -> None:
-        await self._send({"type": "response.cancel"})
+        await self._send({"type": "response.cancel"}, tolerate_drop=True)
 
     async def close(self) -> None:
         if self._reader_task:
@@ -142,13 +145,21 @@ class OpenAIRealtimeViviAdapter(ViviAgentAdapter):
                 pass
         await self._events.put(None)
 
-    async def _send(self, payload: dict) -> None:
+    async def _send(self, payload: dict, *, tolerate_drop: bool = False) -> None:
         if self.websocket is None:
             raise RuntimeError("Realtime session has not started")
         # The sender (audio turns) and the drainer (tool results) both write to the
         # one websocket concurrently during FDRC; serialize frames with a lock.
         async with self._send_lock:
-            await self.websocket.send(json.dumps(payload, ensure_ascii=False))
+            try:
+                await self.websocket.send(json.dumps(payload, ensure_ascii=False))
+            except Exception as exc:
+                if not tolerate_drop:
+                    raise
+                await self._events.put(
+                    {"type": "session_error", "t_ms": self._t_ms(), "error": str(exc)}
+                )
+                await self._events.put(None)
 
     async def _reader_loop(self) -> None:
         try:
