@@ -1,4 +1,6 @@
 import json
+from copy import deepcopy
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -244,6 +246,125 @@ def test_dashboard_timeline_exposes_assistant_response_text(tmp_path):
             "priority": False,
         }
     ]
+
+
+def test_dashboard_timeline_deduplicates_tool_call_sources(tmp_path):
+    run = tmp_path / "dedupe_timeline_run"
+    run.mkdir()
+    base = sample_fdrc_episode()
+    tool_call = base["tool_calls"][0]
+    episode = sample_fdrc_episode(
+        normalized_events=[
+            {"type": "assistant_speech_start", "t_ms": 2600},
+            {"type": "user_audio_chunk_sent", "t_ms": 3300, "overlap": True},
+            {"type": "assistant_speech_stop", "t_ms": 3700},
+            {"type": "user_transcript_done", "t_ms": 4200, "text": "À không, 24 độ."},
+            {
+                "type": "tool_call",
+                "t_ms": tool_call["t_ms"],
+                "tool": tool_call["tool"],
+                "args": tool_call["args"],
+            },
+            {"type": "tool_result", "t_ms": 4610, "tool": tool_call["tool"]},
+        ],
+    )
+    write_jsonl(run / "episodes.jsonl", [episode])
+
+    detail = DashboardStore(tmp_path).episode_detail("dedupe_timeline_run", episode["episode_id"])
+    tool_events = [event for event in detail["timeline"] if event["event"] == "tool_call"]
+
+    assert len(tool_events) == 1
+    assert tool_events[0]["sources"] == ["normalized", "tool_calls"]
+
+
+def test_dashboard_fdrc_slot_eval_infers_poi_name_from_dest_name(tmp_path):
+    run = tmp_path / "slot_eval_run"
+    run.mkdir()
+    tasks = load_base_tasks()
+    overlay = next(row for row in load_overlays() if row["speech_overlay_id"] == "fdrc_navigation_005")
+    task = tasks[overlay["base_task_id"]]
+    expected_call = deepcopy(overlay["expected_tool_calls"][0])
+    episode = reference_episode(task, overlay, FDRC_TRACK, "vi_north_normal")
+    episode.update(
+        {
+            "run_kind": "provider",
+            "is_reference": False,
+            "agent": "openai_as_vivi",
+            "provider": "openai",
+            "model": "gpt-realtime-mini",
+            "adapter": "openai_realtime",
+            "captured_slots": {},
+            "tool_calls": [{**expected_call, "t_ms": 4700}],
+            "tool_results": [{"success": True}],
+            "normalized_events": [
+                {"type": "assistant_speech_start", "t_ms": 2600},
+                {"type": "user_audio_chunk_sent", "t_ms": 3300, "overlap": True},
+                {"type": "assistant_speech_stop", "t_ms": 3700},
+                {"type": "user_transcript_done", "t_ms": 4200, "text": "Không, đến Ga Cát Linh cơ."},
+                {"type": "tool_result", "t_ms": 4710, "tool": "compute_routes"},
+            ],
+        }
+    )
+    write_jsonl(run / "episodes.jsonl", [episode])
+
+    detail = DashboardStore(tmp_path).episode_detail("slot_eval_run", episode["episode_id"])
+
+    assert detail["slot_eval"]["captured_slots"]["poi_name"] == "Ga Cát Linh"
+    assert detail["slot_eval"]["critical_slot_result"]["passed"] is True
+
+def test_dashboard_reevaluates_cancel_tool_attempt_as_failure(tmp_path):
+    run = tmp_path / "cancel_violation_run"
+    run.mkdir()
+    tasks = load_base_tasks()
+    overlay = next(row for row in load_overlays() if row["speech_overlay_id"] == "fdrc_cancel_002")
+    task = tasks[overlay["base_task_id"]]
+    episode = reference_episode(task, overlay, FDRC_TRACK, "vi_north_normal")
+    episode.update(
+        {
+            "episode_id": "gemini_cancel_violation",
+            "run_kind": "provider",
+            "is_reference": False,
+            "agent": "gemini_as_vivi",
+            "provider": "gemini",
+            "model": "gemini-live",
+            "adapter": "gemini_live",
+            "tool_calls": [{**overlay["forbidden_tool_calls"][0], "t_ms": 4600}],
+            "tool_results": [
+                {"success": False, "error": "cancelled_intent_forbids_tool_call"}
+            ],
+            "final_state": {"committed_intent": "cancel"},
+            "normalized_events": [
+                {"type": "assistant_speech_start", "t_ms": 2600},
+                {"type": "user_audio_chunk_sent", "t_ms": 3300, "overlap": True},
+                {"type": "assistant_speech_stop", "t_ms": 3700},
+                {"type": "user_transcript_done", "t_ms": 4200, "text": "Thôi hủy."},
+                {"type": "tool_result", "t_ms": 4610, "tool": "compute_routes"},
+            ],
+            "scores": {**episode.get("scores", {}), "final_pass": 1},
+            "failure_types": [],
+        }
+    )
+    write_jsonl(run / "episodes.jsonl", [episode])
+
+    store = DashboardStore(tmp_path)
+    detail = store.episode_detail("cancel_violation_run", "gemini_cancel_violation")
+    summary = store.run_summary("cancel_violation_run", track=FDRC_TRACK)
+
+    assert detail["summary"]["passed"] is False
+    assert detail["summary"]["cancel_respected"] is False
+    assert detail["summary"]["cancel_attempted_tool_call"] is True
+    assert detail["summary"]["cancel_tool_call_count"] == 1
+    assert detail["repair"]["cancel_blocked_tool_call_count"] == 1
+    assert "CANCEL_NOT_RESPECTED" in detail["failure_types"]
+    assert summary["metrics"]["cancel_success_rate"] == 0.0
+
+
+def test_dashboard_timeline_ui_labels_expected_speech_marker():
+    app_js = Path("src/dashboard/static/app.js").read_text(encoding="utf-8")
+    assert "expected assistant speech window" in app_js
+    assert "expected scheduling marker, not an observed assistant action" in app_js
+    assert "hủy lệnh được tôn trọng" in app_js
+    assert "CANCEL_NOT_RESPECTED" in app_js
 
 
 def test_fdrc_required_metric_contract_is_non_null_for_scored_run(tmp_path):

@@ -171,6 +171,13 @@ def test_schema_validator_enforces_conditional_arguments():
     )
 
 
+def test_compute_routes_accepts_array_avoid_and_legacy_string_avoid():
+    base_args = {"dest_lat": 21.028, "dest_lng": 105.826, "dest_name": "Ga Cát Linh"}
+    assert not validate_tool_schema("compute_routes", {**base_args, "avoid": []})
+    assert not validate_tool_schema("compute_routes", {**base_args, "avoid": ["tolls"]})
+    assert not validate_tool_schema("compute_routes", {**base_args, "avoid": ""})
+
+
 def test_openai_tool_schemas_are_strict_and_domain_scoped():
     schemas = get_openai_tool_schemas("navigation")
     names = {schema["name"] for schema in schemas}
@@ -197,6 +204,27 @@ def test_mock_tool_server_executes_and_owns_final_state():
     bad = server.execute("weather", {"location": "Hà Nội"})
     assert bad.ok is False
     assert bad.validation_errors[0]["reason"] == "OUT_OF_SCOPE_TOOL_CALL"
+
+
+def test_mock_tool_server_blocks_and_logs_fdrc_cancel_tool_attempt():
+    tasks = load_base_tasks()
+    overlay = next(row for row in load_overlays() if row["speech_overlay_id"] == "fdrc_cancel_002")
+    task = tasks[overlay["base_task_id"]]
+    server = MockToolServer("navigation", task, overlay)
+
+    result = server.execute("compute_routes", overlay["forbidden_tool_calls"][0]["args"], t_ms=4600)
+    final_state = server.final_state()
+
+    assert result.ok is False
+    assert result.content["success"] is False
+    assert result.content["error"] == "cancelled_intent_forbids_tool_call"
+    assert len(server.tool_call_log) == 1
+    assert not any(item.get("success") is True for item in server.tool_results)
+    assert final_state["committed_intent"] == "cancel"
+    assert final_state["fdrc"]["commit_status"] == "cancel_violation"
+    assert final_state["fdrc"]["cancel_attempted_tool_call"] is True
+    assert final_state["fdrc"]["cancel_tool_call_count"] == 1
+    assert "route" not in final_state.get("navigation", {})
 
 
 def test_policy_missing_required_communication_fails():
@@ -255,7 +283,50 @@ def test_fdrc_cancel_fails_when_any_tool_commits():
     episode["tool_results"] = [{"success": True}]
     result = evaluate_fdrc_episode(episode, overlay, task)
     assert result["scores"]["final_pass"] == 0
+    assert result["repair"]["cancel_respected"] is False
+    assert result["repair"]["cancel_attempted_tool_call"] is True
+    assert result["repair"]["cancel_tool_call_count"] == 1
+    assert result["repair"]["cancel_blocked_tool_call_count"] == 0
     assert FailureType.CANCEL_NOT_RESPECTED in result["failure_types"]
+
+
+def test_fdrc_cancel_fails_when_tool_attempt_is_rejected():
+    tasks = load_base_tasks()
+    overlay = next(row for row in load_overlays() if row["speech_overlay_id"] == "fdrc_cancel_002")
+    task = tasks[overlay["base_task_id"]]
+    episode = reference_episode(
+        task, overlay, "full_duplex_repair_to_commit", "vi_north_normal"
+    )
+    episode["tool_calls"] = [{**overlay["forbidden_tool_calls"][0], "t_ms": 4600}]
+    episode["tool_results"] = [
+        {"success": False, "error": "cancelled_intent_forbids_tool_call"}
+    ]
+    episode["final_state"] = {"committed_intent": "cancel"}
+
+    result = evaluate_fdrc_episode(episode, overlay, task)
+
+    assert result["scores"]["task_pass"] == 0
+    assert result["scores"]["final_pass"] == 0
+    assert result["repair"]["cancel_respected"] is False
+    assert result["repair"]["cancel_blocked_tool_call_count"] == 1
+    assert FailureType.CANCEL_NOT_RESPECTED in result["failure_types"]
+
+
+def test_fdrc_cancel_passes_when_no_tool_is_attempted():
+    tasks = load_base_tasks()
+    overlay = next(row for row in load_overlays() if row["speech_overlay_id"] == "fdrc_cancel_001")
+    task = tasks[overlay["base_task_id"]]
+    episode = reference_episode(
+        task, overlay, "full_duplex_repair_to_commit", "vi_north_normal"
+    )
+
+    result = evaluate_fdrc_episode(episode, overlay, task)
+
+    assert result["scores"]["final_pass"] == 1
+    assert result["repair"]["cancel_respected"] is True
+    assert result["repair"]["cancel_attempted_tool_call"] is False
+    assert result["repair"]["cancel_tool_call_count"] == 0
+    assert FailureType.CANCEL_NOT_RESPECTED not in result["failure_types"]
 
 
 def test_fdrc_detects_duplicate_final_commit():
@@ -328,6 +399,81 @@ def test_fdrc_provider_passes_with_observed_repair_to_commit_lifecycle():
     result = evaluate_fdrc_episode(episode, overlay, task)
     assert result["scores"]["final_pass"] == 1
     assert result["latency"]["yield_latency_ms"] == 400
+
+
+def test_fdrc_provider_allows_helper_tool_when_final_commit_matches_repair():
+    tasks = load_base_tasks()
+    overlay = next(row for row in load_overlays() if row["speech_overlay_id"] == "fdrc_navigation_005")
+    task = tasks[overlay["base_task_id"]]
+    expected_call = deepcopy(overlay["expected_tool_calls"][0])
+    episode = reference_episode(
+        task, overlay, "full_duplex_repair_to_commit", "vi_north_normal"
+    )
+    episode["is_reference"] = False
+    episode["run_kind"] = "provider"
+    episode["tool_calls"] = [
+        {"tool": "search_places", "args": {"query": "Ga Cát Linh", "max_results": 1}, "t_ms": 4400},
+        {**expected_call, "t_ms": 4700},
+    ]
+    episode["tool_results"] = [{"success": True}, {"success": True}]
+    episode["final_state"] = {"committed_intent": "compute_routes"}
+    episode["captured_slots"] = {}
+    episode["voice_events"] = [
+        {"event": "assistant_speech_start", "t_ms": 2600, "source": "observed"},
+        {"event": "user_interrupt_start", "t_ms": 3300, "source": "observed"},
+        {"event": "repair_audio_start", "t_ms": 3300, "source": "observed"},
+        {"event": "assistant_yielded", "t_ms": 3700, "source": "observed"},
+        {"event": "repair_transcript_done", "t_ms": 4200, "source": "observed"},
+    ]
+    episode["normalized_events"] = [
+        {"type": "tool_result", "t_ms": 4410, "tool": "search_places"},
+        {"type": "tool_result", "t_ms": 4710, "tool": "compute_routes"},
+    ]
+
+    result = evaluate_fdrc_episode(episode, overlay, task)
+
+    assert result["scores"]["tool_exact_match"] == 0
+    assert result["scores"]["task_pass"] == 1
+    assert result["scores"]["final_pass"] == 1
+    assert result["repair"]["correction_uptaken"] is True
+    assert result["critical_slot_result"]["passed"] is True
+
+
+def test_fdrc_provider_fails_when_final_commit_destination_is_wrong():
+    tasks = load_base_tasks()
+    overlay = next(row for row in load_overlays() if row["speech_overlay_id"] == "fdrc_navigation_005")
+    task = tasks[overlay["base_task_id"]]
+    episode = reference_episode(
+        task, overlay, "full_duplex_repair_to_commit", "vi_north_normal"
+    )
+    episode["is_reference"] = False
+    episode["run_kind"] = "provider"
+    episode["tool_calls"] = [
+        {
+            "tool": "compute_routes",
+            "args": {"dest_lat": 10.785, "dest_lng": 106.8223, "dest_name": "Linh Đàm"},
+            "t_ms": 4700,
+        }
+    ]
+    episode["tool_results"] = [{"success": True}]
+    episode["final_state"] = {"committed_intent": "compute_routes"}
+    episode["captured_slots"] = {}
+    episode["voice_events"] = [
+        {"event": "assistant_speech_start", "t_ms": 2600, "source": "observed"},
+        {"event": "user_interrupt_start", "t_ms": 3300, "source": "observed"},
+        {"event": "repair_audio_start", "t_ms": 3300, "source": "observed"},
+        {"event": "assistant_yielded", "t_ms": 3700, "source": "observed"},
+        {"event": "repair_transcript_done", "t_ms": 4200, "source": "observed"},
+    ]
+    episode["normalized_events"] = [
+        {"type": "tool_result", "t_ms": 4710, "tool": "compute_routes"},
+    ]
+
+    result = evaluate_fdrc_episode(episode, overlay, task)
+
+    assert result["scores"]["final_pass"] == 0
+    assert FailureType.CORRECTION_NOT_UPTAKEN in result["failure_types"]
+    assert result["critical_slot_result"]["passed"] is False
 
 
 def test_merge_existing_episodes_deduplicates_by_episode_id(tmp_path):

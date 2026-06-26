@@ -203,7 +203,7 @@ METRIC_REGISTRY = {
     "correction_uptake_rate": ("Tiếp nhận lệnh sửa", "Tỷ lệ episode tiếp nhận đúng ý định cuối cùng sau khi sửa.", "rate", "fdrc"),
     "old_intent_suppression_rate": ("Chặn lệnh cũ", "Tỷ lệ episode không thực thi ý định ban đầu sau khi người dùng sửa.", "rate", "fdrc"),
     "forbidden_tool_call_rate": ("Gọi tool cấm", "Tỷ lệ episode có gọi tool bị cấm.", "rate", "fdrc"),
-    "cancel_success_rate": ("Hủy lệnh đúng", "Tỷ lệ ca hủy không tạo side effect bị cấm.", "rate", "fdrc"),
+    "cancel_success_rate": ("Hủy lệnh đúng", "Tỷ lệ ca hủy không attempted tool call sau lệnh hủy.", "rate", "fdrc"),
     "yield_latency_pass_rate": ("Nhường lời đạt", "Tỷ lệ episode nhường lời trong ngưỡng cho phép.", "rate", "fdrc"),
     "yield_latency_p50_ms": ("P50 nhường lời", "Trung vị độ trễ nhường lời sau khi user chen ngang.", "ms", "latency"),
     "yield_latency_p95_ms": ("P95 nhường lời", "Phân vị 95 của độ trễ nhường lời.", "ms", "latency"),
@@ -816,6 +816,12 @@ def _fdrc_evidence_fields(metric_key: str, episode: dict[str, Any]) -> list[dict
                 _field("old_intent_committed", repair.get("old_intent_committed")),
                 _field("forbidden_tool_called", repair.get("forbidden_tool_called")),
                 _field("cancel_respected", repair.get("cancel_respected")),
+                _field("cancel_attempted_tool_call", repair.get("cancel_attempted_tool_call")),
+                _field("cancel_tool_call_count", repair.get("cancel_tool_call_count")),
+                _field(
+                    "cancel_blocked_tool_call_count",
+                    repair.get("cancel_blocked_tool_call_count"),
+                ),
                 _field("tool_calls", episode.get("tool_calls", [])),
             ]
         )
@@ -1032,7 +1038,7 @@ METRIC_PLAIN_MEANINGS = {
     "validity_failure_counts": "Số loại lỗi validity xuất hiện trong run, dùng để tìm nguyên nhân dữ liệu không reportable.",
     "correction_uptake_rate": "Tỷ lệ episode agent tiếp nhận đúng lệnh sửa cuối cùng sau khi người dùng chen ngang.",
     "old_intent_suppression_rate": "Tỷ lệ episode agent không thực thi ý định cũ sau khi người dùng đã sửa hoặc hủy.",
-    "cancel_success_rate": "Tỷ lệ ca hủy được tôn trọng, không tạo side effect bị cấm.",
+    "cancel_success_rate": "Tỷ lệ ca hủy được tôn trọng bằng cách không attempted tool call sau lệnh hủy.",
     "yield_latency_pass_rate": "Tỷ lệ episode agent nhường lời trong ngưỡng latency cho phép khi người dùng chen ngang.",
     "yield_latency_p50_ms": "Độ trễ nhường lời trung vị; một nửa episode có latency thấp hơn hoặc bằng số này.",
     "yield_latency_p95_ms": "Độ trễ nhường lời ở phân vị 95; phản ánh tail latency khó chịu với người dùng.",
@@ -1097,6 +1103,15 @@ def _metric_result_comment(
         direction = _metric_direction(key)
         value_text = _metric_value_text(value, unit)
         sample = f" trên n={denominator}" if denominator not in (None, "", 0) else ""
+        if key == "fdrc_validity_rate":
+            # Validity is a precondition (episode đủ bằng chứng để chấm), not a quality
+            # score. A run can hit 100% validity while the agent fails every episode, so
+            # never phrase this as "tốt/ổn". Point the reader at the real pass metric.
+            return (
+                f"{label} đạt {value_text}{sample} — đây là CỔNG DỮ LIỆU (episode đủ bằng "
+                "chứng để chấm), KHÔNG phải điểm chất lượng. Validity cao chỉ nghĩa là số "
+                "liệu đáng tin; xem fdrc_pass_at_1 để biết agent làm tốt hay không."
+            )
         if unit == "rate" and direction == "higher_is_better":
             if value >= 0.9:
                 level = "tốt"
@@ -1268,6 +1283,9 @@ def _episode_row(episode: dict[str, Any]) -> dict[str, Any]:
         "old_intent_committed": repair.get("old_intent_committed"),
         "forbidden_tool_called": repair.get("forbidden_tool_called"),
         "cancel_respected": repair.get("cancel_respected"),
+        "cancel_attempted_tool_call": repair.get("cancel_attempted_tool_call"),
+        "cancel_tool_call_count": repair.get("cancel_tool_call_count"),
+        "cancel_blocked_tool_call_count": repair.get("cancel_blocked_tool_call_count"),
         "duplicate_final_commit": repair.get("duplicate_final_commit"),
         "tool_commit_time_ms": repair.get("tool_commit_time_ms"),
         "final_intent": repair.get("final_intent"),
@@ -1308,14 +1326,48 @@ def _timeline(episode: dict[str, Any]) -> list[dict[str, Any]]:
                     "source": "tool_calls",
                 }
             )
-    sorted_events = sorted(
-        [event for event in events if isinstance(event.get("t_ms"), (int, float))],
-        key=lambda event: event["t_ms"],
-    )
+    sorted_events = sorted(_dedupe_timeline_events(events), key=lambda event: event["t_ms"])
     return [
         {**event, "priority": event.get("event") in PRIORITY_TIMELINE_EVENTS}
         for event in sorted_events
     ]
+
+
+def _timeline_key(event: dict[str, Any]) -> tuple[Any, ...]:
+    args = event.get("args")
+    try:
+        args_key = json.dumps(args, ensure_ascii=False, sort_keys=True)
+    except TypeError:
+        args_key = str(args)
+    return (
+        event.get("event"),
+        event.get("t_ms"),
+        event.get("tool"),
+        args_key,
+        event.get("text"),
+    )
+
+
+def _dedupe_timeline_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    merged: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for event in events:
+        if not isinstance(event.get("t_ms"), (int, float)):
+            continue
+        key = _timeline_key(event)
+        source = event.get("source")
+        if key not in merged:
+            merged[key] = dict(event)
+            continue
+        row = merged[key]
+        sources = row.setdefault("sources", [])
+        existing_source = row.get("source")
+        if existing_source and str(existing_source) not in sources:
+            sources.append(str(existing_source))
+        if source and str(source) not in sources:
+            sources.append(str(source))
+        if not row.get("source") and source:
+            row["source"] = source
+    return list(merged.values())
 
 
 def _assistant_response_events(normalized_events: list[Any]) -> list[dict[str, Any]]:

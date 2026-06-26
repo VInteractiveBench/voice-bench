@@ -31,6 +31,11 @@ def validate_tool_schema(tool_name: str, arguments: dict) -> list[dict]:
         if value is None and key in spec["optional"]:
             continue
         kind = spec["required"].get(key, spec["optional"].get(key))
+        if tool_name == "compute_routes" and key == "avoid" and isinstance(value, str):
+            # Older logs and some adapters sent `avoid` as a string. The current
+            # strict function schema uses an array, so keep historical runs
+            # readable while accepting the model-valid list shape.
+            continue
         if not isinstance(value, kind):
             errors.append({"field": key, "reason": "invalid_type"})
         if key in spec["enums"] and value not in spec["enums"][key]:

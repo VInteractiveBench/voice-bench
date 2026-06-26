@@ -402,7 +402,7 @@
     invalid_episode_count: "Số episode FDRC thiếu bằng chứng hoặc sai log.",
     correction_uptake_rate: "Agent có tiếp nhận đúng lệnh sửa cuối cùng sau khi user chen ngang hay không.",
     old_intent_suppression_rate: "Agent có chặn ý định cũ sau khi user sửa hoặc hủy hay không.",
-    cancel_success_rate: "Ca hủy có được tôn trọng và không tạo side effect bị cấm hay không.",
+    cancel_success_rate: "Ca hủy chỉ pass khi agent không attempted tool call sau lệnh hủy.",
     yield_latency_pass_rate: "Agent có nhường lời trong ngưỡng latency cho phép hay không.",
     yield_latency_p50_ms: "Độ trễ nhường lời trung vị; một nửa episode thấp hơn hoặc bằng số này.",
     yield_latency_p95_ms: "Độ trễ nhường lời phân vị 95; phản ánh tail latency khó chịu.",
@@ -545,6 +545,13 @@
         ? `<div class="modal-table-wrap"><table class="modal-table modal-evidence"><thead><tr><th>episode</th><th>domain</th><th>persona</th><th>evidence fields</th></tr></thead>
             <tbody>${evidence.map((ep) => explainEvidenceRow(runId, ep)).join("")}</tbody></table></div>`
         : `<p class="modal-note">Không có episode trong mẫu số để hiển thị evidence.</p>`;
+      // The evidence list is a capped sample, not the full denominator — say so explicitly
+      // so "12/90" can't be misread as "only 12 episodes qualify".
+      const denomCount = data.denominator_episode_count ?? data.denominator;
+      const evidenceHeading =
+        denomCount != null && Number(denomCount) > evidence.length
+          ? `Evidence (mẫu ${evidence.length} trong ${esc(denomCount)} episode mẫu số — đã cắt bớt)`
+          : `Evidence (toàn bộ ${esc(denomCount ?? evidence.length)} episode mẫu số)`;
       const explorerLink = data.explorer_filter
         ? `<a class="btn btn-ghost" id="modal-explorer" href="${H.buildHash({ tab: ACTIVE.tab, view: "episodes", runId })}">Mở Episode Explorer →</a>`
         : "";
@@ -567,7 +574,7 @@
         </div>
         <h4>Evaluator đã kiểm tra</h4>
         ${checks}
-        <h4>Evidence mẫu số / tử số (${evidence.length}/${esc(data.denominator_episode_count ?? data.denominator)} episode hiển thị)</h4>
+        <h4>${evidenceHeading}</h4>
         ${evidenceTable}
         <h4>Episode liên quan đến tử số (${eps.length})</h4>
         ${epTable}
@@ -848,6 +855,7 @@
       ${assertRow(repair.correction_uptaken === true, "đã tiếp nhận lệnh sửa", repair.correction_uptaken == null)}
       ${assertRow(repair.old_intent_committed === false, "không thực thi lệnh cũ", repair.old_intent_committed == null)}
       ${assertRow(repair.forbidden_tool_called === false, "không gọi tool cấm", repair.forbidden_tool_called == null)}
+      ${repair.final_intent === "cancel" || repair.cancel_respected != null ? assertRow(repair.cancel_respected === true, "hủy lệnh được tôn trọng", repair.cancel_respected == null) : ""}
       ${assertRow(repair.duplicate_final_commit === false, "không commit cuối trùng lặp", repair.duplicate_final_commit == null)}
       ${assertRow(!H.earlyCommit(d.timeline || []), "không commit sớm trước cổng cho phép", false)}
     </div>`;
@@ -906,6 +914,7 @@
     const warnings = [];
     if (repair.old_intent_committed) warnings.push("OLD_INTENT_COMMITTED");
     if (repair.forbidden_tool_called) warnings.push("FORBIDDEN_TOOL_CALL");
+    if (repair.cancel_respected === false || repair.cancel_attempted_tool_call) warnings.push("CANCEL_NOT_RESPECTED");
     if (repair.correction_uptaken === false) warnings.push("CORRECTION_NOT_UPTAKEN");
     if (stateDiff.matches === false) warnings.push("FINAL_STATE_MISMATCH");
 
@@ -1049,9 +1058,10 @@
         yield: "var(--pass)", interrupt: "var(--warn)", tool: isEarlyTool ? "var(--fail)" : "var(--mutate)",
         expected: "var(--gray)", observed: "var(--observed)",
       }[c.cls] || "var(--observed)";
-      const note = e.text || (e.tool ? `${e.tool}(${argsText(e.args)})` : "");
-      const tip = `${e.event || ""} @ ${e.t_ms}ms${e.source ? " · " + e.source : ""}${note ? " · " + note : ""}`;
-      svg += `<g class="${cls}"><title>${esc(tip)}</title>`;
+      const note = timelineDetail(e);
+      const sources = timelineSources(e);
+      const tipLabel = `${timelineLabel(e.event)} @ ${e.t_ms}ms${sources ? " / " + sources : ""}${note ? " / " + note : ""}`;
+      svg += `<g class="${cls}"><title>${esc(tipLabel)}</title>`;
       svg += `<line x1="${cx}" y1="${ly + 12}" x2="${cx}" y2="${ly + laneH - 12}"/>`;
       svg += `<circle class="tl-dot" cx="${cx}" cy="${ly + laneH / 2}" r="4" fill="${dotColor}"/>`;
       svg += `</g>`;
@@ -1080,12 +1090,13 @@
       .sort((a, b) => a.t_ms - b.t_ms)
       .map((e) => {
         const c = H.classifyEvent(e.event);
-        const note = e.text || (e.tool ? `${e.tool}(${argsText(e.args)})` : "");
-        const source = e.source ? `<span class="tl-event-source">${esc(e.source)}</span>` : "";
+        const note = timelineDetail(e);
+        const sources = timelineSources(e);
+        const source = sources ? `<span class="tl-event-source">${esc(sources)}</span>` : "";
         return `<div class="tl-event-row tl-event-${esc(c.cls)}">
           <div class="tl-event-time">${esc(H.fmtMs(e.t_ms))}</div>
           <div class="tl-event-lane">${esc(c.lane)}</div>
-          <div class="tl-event-name">${esc(shortEvent(e.event))}${source}</div>
+          <div class="tl-event-name">${esc(timelineLabel(e.event))}${source}</div>
           <div class="tl-event-note">${esc(note || "—")}</div>
         </div>`;
       })
@@ -1104,235 +1115,106 @@
       .replace(/_start$/, "").replace(/_ms$/, "");
   }
 
+  function timelineLabel(name) {
+    const labels = {
+      assistant_speech_expected_start: "expected assistant speech window",
+      assistant_should_yield_by: "expected yield deadline",
+      tool_commit_allowed_after: "expected commit gate",
+      user_interrupt_start: "user interrupt",
+      repair_audio_start: "repair audio",
+      repair_transcript_done: "repair transcript",
+      assistant_yielded: "assistant yielded",
+      assistant_speech_start: "assistant speech start",
+      assistant_speech_stop: "assistant speech stop",
+      assistant_response: "assistant response",
+      tool_call: "tool call",
+      tool_result: "tool result",
+    };
+    return labels[name] || shortEvent(name);
+  }
+
+  function timelineSources(e) {
+    if (Array.isArray(e.sources) && e.sources.length) return e.sources.join(" + ");
+    return e.source || "";
+  }
+
+  function timelineDetail(e) {
+    if (e.text) return e.text;
+    if (e.tool) return `${e.tool}(${argsText(e.args)})`;
+    const details = {
+      assistant_speech_expected_start: "expected scheduling marker, not an observed assistant action",
+      assistant_should_yield_by: "deadline for yielding after barge-in",
+      tool_commit_allowed_after: "earliest allowed side-effect commit",
+      user_interrupt_start: "observed overlapping user repair",
+      repair_audio_start: "observed repair audio delivery",
+      repair_transcript_done: "repair transcript became available",
+      assistant_yielded: "assistant stopped or yielded after interrupt",
+      assistant_speech_start: "observed assistant audio start",
+      assistant_speech_stop: "observed assistant audio stop",
+    };
+    return details[e.event] || "lifecycle marker";
+  }
+
   // ================================================================
-  // VIEW: Compare (model-vs-model on the Full-Duplex track)
+  // VIEW: Compare (run-vs-run on the Full-Duplex track)
   // ================================================================
   const COMPARE_TRACK = H.FDRC_TRACK;
-  const COMPARE_DOMAINS = [
-    { id: "media_phone", label: "Media", aliases: ["media_phone", "media", "phone"] },
-    { id: "navigation", label: "Navigation", aliases: ["navigation", "nav"] },
-    { id: "automotive", label: "Automotive", aliases: ["automotive", "vehicle"] },
-  ];
-  const COMPARE_DIFFICULTIES = [
-    { id: "easy", label: "Dễ", audioCondition: "clean" },
-    { id: "medium", label: "Trung bình", audioCondition: "cabin_noise" },
-    { id: "hard", label: "Khó", audioCondition: "interaction_stress" },
-  ];
-  let activeCompareDifficulty = "hard";
-  const COMPARE_MODELS = [
-    {
-      id: "openai_realtime",
-      label: "OpenAI realtime",
-      match: (run) => {
-        const text = compareProviderText(run);
-        return /openai|gpt[-_]?realtime|openai[-_]?realtime/.test(text);
-      },
-    },
-    {
-      id: "gemini_realtime",
-      label: "Gemini realtime",
-      match: (run) => {
-        const text = compareProviderText(run);
-        return /gemini|google|gemini[-_]?live|native[-_]?audio/.test(text);
-      },
-    },
-  ];
   const COMPARE_METRICS = [
-    { key: "raw_fdrc_pass_at_1", label: "Pass FDRC (raw)", unit: "rate" },
-    { key: "performance_fdrc_pass_at_1", label: "Pass FDRC (performance)", unit: "rate" },
-    { key: "fdrc_validity_rate", label: "Validity", unit: "rate" },
+    { key: "fdrc_pass_at_1", label: "FDRC pass@1", unit: "rate" },
     { key: "correction_uptake_rate", label: "Tiếp nhận sửa", unit: "rate" },
     { key: "old_intent_suppression_rate", label: "Chặn ý định cũ", unit: "rate" },
-    { key: "forbidden_tool_call_rate", label: "Gọi tool bị cấm (thấp tốt)", unit: "rate" },
+    { key: "forbidden_tool_call_rate", label: "Gọi tool cấm (thấp tốt)", unit: "rate" },
     { key: "cancel_success_rate", label: "Cancel thành công", unit: "rate" },
-    { key: "yield_latency_pass_rate", label: "Pass yield latency", unit: "rate" },
+    { key: "state_match", label: "State match", unit: "rate" },
     { key: "yield_latency_p50_ms", label: "Yield p50", unit: "ms" },
     { key: "yield_latency_p95_ms", label: "Yield p95", unit: "ms" },
+    { key: "yield_latency_pass_rate", label: "Pass yield latency", unit: "rate" },
+    { key: "fdrc_validity_rate", label: "Validity", unit: "rate" },
   ];
-  // Rate metrics where a LOWER value is better (so a negative delta is good).
+  // Rate metrics where a LOWER value is better (negative delta is good).
   const COMPARE_BAD_HIGH = new Set(["forbidden_tool_call_rate"]);
 
-  function compareIdentityText(run) {
-    return [
-      run && run.run_id,
-      ...(run && run.providers || []),
-      ...(run && run.models || []),
-      ...(run && run.adapters || []),
-      ...(run && run.agents || []),
-    ].join(" ").toLowerCase();
+  function compareModelFamily(run) {
+    const t = [...(run.models || []), ...(run.providers || []), ...(run.adapters || []), run.run_id]
+      .join(" ").toLowerCase();
+    if (/gemini|google|native[-_]?audio/.test(t)) return { id: "gemini", label: "Gemini" };
+    if (/openai|gpt/.test(t)) return { id: "openai", label: "OpenAI" };
+    return { id: "other", label: "Khác" };
   }
+  function compareIsLive(run) { return /(_sim|simulator|live)/.test(String(run.run_id || "")); }
 
-  function compareProviderText(run) {
-    const identity = [
-      ...(run && run.providers || []),
-      ...(run && run.models || []),
-      ...(run && run.adapters || []),
-    ];
-    if (!identity.length && run && run.run_id) identity.push(run.run_id);
-    return identity.join(" ").toLowerCase();
-  }
-
-  function canonicalCompareDomain(value) {
-    const v = String(value || "").toLowerCase();
-    if (v === "media" || v === "media_phone" || v === "phone") return "media_phone";
-    if (v === "nav" || v === "navigation") return "navigation";
-    if (v === "vehicle" || v === "automotive") return "automotive";
-    return v;
-  }
-
-  function compareRunDomains(run) {
-    const explicit = (run && run.domains || []).map(canonicalCompareDomain);
-    if (explicit.length) return new Set(explicit);
-    const text = compareIdentityText(run);
-    const inferred = [];
-    COMPARE_DOMAINS.forEach((domain) => {
-      if (domain.aliases.some((alias) => text.includes(alias))) inferred.push(domain.id);
-    });
-    return new Set(inferred);
-  }
-
-  function compareRunAudioConditions(run) {
-    return new Set((run && run.audio_conditions || []).map((value) => String(value)));
-  }
-
-  function activeCompareCondition() {
-    return COMPARE_DIFFICULTIES.find((row) => row.id === activeCompareDifficulty)
-      || COMPARE_DIFFICULTIES[COMPARE_DIFFICULTIES.length - 1];
-  }
-
-  function metricValue(summary, key) {
+  function compareMetricValue(summary, key) {
     const m = summary && summary.metrics ? summary.metrics : {};
     const v = m[key];
     return typeof v === "number" && !Number.isNaN(v) ? v : null;
   }
-
-  function compareRate(rows, predicate) {
-    return rows.length ? rows.filter(predicate).length / rows.length : null;
-  }
-
-  function comparePercentile(values, percentile) {
-    if (!values.length) return null;
-    const ordered = values.slice().sort((a, b) => a - b);
-    const index = Math.round((ordered.length - 1) * percentile);
-    return ordered[index];
-  }
-
-  function compareDomainMetrics(episodes) {
-    const rows = episodes || [];
-    const completed = rows.filter((row) => row.passed !== null && row.passed !== undefined);
-    const knownValidity = rows.filter((row) => row.fdrc_valid !== null && row.fdrc_valid !== undefined);
-    const validRows = rows.filter((row) => row.fdrc_valid === true);
-    const repairRows = rows.filter((row) =>
-      row.correction_uptaken !== undefined ||
-      row.old_intent_committed !== undefined ||
-      row.forbidden_tool_called !== undefined ||
-      row.final_intent !== undefined
-    );
-    const cancelRows = repairRows.filter((row) => row.final_intent === "cancel");
-    const latencies = rows
-      .map((row) => row.yield_latency_ms)
-      .filter((value) => typeof value === "number" && !Number.isNaN(value));
-    const validityRate = compareRate(knownValidity, (row) => row.fdrc_valid === true);
-    const reportable = validityRate !== null && validityRate >= 0.9;
-    return {
-      metrics: {
-        raw_fdrc_pass_at_1: compareRate(completed, (row) => row.passed === true),
-        performance_fdrc_pass_at_1: reportable ? compareRate(validRows, (row) => row.passed === true) : null,
-        fdrc_validity_rate: validityRate,
-        correction_uptake_rate: compareRate(repairRows, (row) => row.correction_uptaken === true),
-        old_intent_suppression_rate: compareRate(repairRows, (row) => row.old_intent_committed === false),
-        forbidden_tool_call_rate: compareRate(repairRows, (row) => row.forbidden_tool_called === true),
-        cancel_success_rate: compareRate(cancelRows, (row) => row.cancel_respected === true),
-        yield_latency_pass_rate: compareRate(
-          completed,
-          (row) => !(row.failure_types || []).includes("YIELD_LATENCY_TOO_HIGH")
-        ),
-        yield_latency_p50_ms: comparePercentile(latencies, 0.5),
-        yield_latency_p95_ms: comparePercentile(latencies, 0.95),
-      },
-      episodeCount: rows.length,
-      validCount: validRows.length,
-    };
-  }
-
   function fmtCompareValue(unit, v) {
     if (v === null || v === undefined) return "—";
     return unit === "ms" ? H.fmtMs(v) : H.fmtPct(v);
   }
-
-  function fmtDelta(unit, delta) {
+  function fmtCompareDelta(unit, delta) {
     if (delta === null || delta === undefined) return "";
-    if (unit === "ms") {
-      const r = Math.round(delta);
-      return (r > 0 ? "+" : "") + r + " ms";
-    }
-    const pp = delta * 100;
-    return (pp > 0 ? "+" : "") + pp.toFixed(1) + " pp";
+    if (unit === "ms") { const r = Math.round(delta); return (r > 0 ? "+" : "") + r + " ms"; }
+    const pp = delta * 100; return (pp > 0 ? "+" : "") + pp.toFixed(1) + " pp";
   }
-
-  // Tone a delta cell by metric direction: green = better than baseline.
-  function deltaClass(key, unit, delta) {
+  function compareDeltaClass(key, unit, delta) {
     if (delta === null || delta === undefined || delta === 0) return "";
     const lowerBetter = unit === "ms" || COMPARE_BAD_HIGH.has(key);
     if (lowerBetter) return delta < 0 ? "s-pass" : "s-fail";
     return delta > 0 ? "s-pass" : "s-fail";
   }
 
-  function compareRunScore(run, domainId) {
-    const updated = Date.parse(run.updated_at || "") || 0;
-    const domains = compareRunDomains(run);
-    let score = 0;
-    if (H.effectiveRunKind(run) === "benchmark") score += 100000;
-    if (run.primary) score += 20000;
-    if (run.status === "complete") score += 5000;
-    if (domains.size === 1 && domains.has(domainId)) score += 500;
-    score += (run.episode_count || 0) * 20;
-    score += updated / 1000000000000;
-    return score;
-  }
-
-  function pickCompareRun(runs, domain, model, difficulty) {
-    const candidates = (runs || []).filter((run) => {
-      const domains = compareRunDomains(run);
-      const conditions = compareRunAudioConditions(run);
-      return H.effectiveRunKind(run) === "benchmark"
-        && domains.has(domain.id)
-        && conditions.has(difficulty.audioCondition)
-        && model.match(run);
-    });
-    candidates.sort((a, b) => compareRunScore(b, domain.id) - compareRunScore(a, domain.id));
-    return candidates[0] || null;
-  }
-
-  async function loadCompareSummary(runId, domainId, audioCondition) {
-    const key = `compare-summary:${runId}:${domainId}:${audioCondition}`;
+  async function loadWholeRunSummary(runId) {
+    const key = `compare-whole:${runId}`;
     if (cache.summary[key]) return cache.summary[key];
-    const q = new URLSearchParams({
-      track: COMPARE_TRACK,
-      domain: domainId,
-      audio_condition_id: audioCondition,
-    });
+    const q = new URLSearchParams({ track: COMPARE_TRACK });
     cache.summary[key] = await getJSON(`/api/runs/${encodeURIComponent(runId)}/summary?${q}`);
     return cache.summary[key];
-  }
-
-  function renderCompareDifficultyTabs() {
-    return `<div class="cmp-difficulty-tabs" role="tablist" aria-label="Compare difficulty">
-      ${COMPARE_DIFFICULTIES.map((difficulty) =>
-        `<button class="cmp-difficulty-tab" type="button" role="tab"
-          aria-selected="${difficulty.id === activeCompareDifficulty ? "true" : "false"}"
-          data-difficulty="${esc(difficulty.id)}">
-          <span>${esc(difficulty.label)}</span>
-          <small>${esc(difficulty.audioCondition)}</small>
-        </button>`
-      ).join("")}
-    </div>`;
   }
 
   async function renderCompare() {
     setStatus("compare", "loading runs…");
     view.innerHTML = `<div class="skeleton"></div><div class="skeleton"></div>`;
-
     let runs;
     try {
       const all = await getJSON("/api/runs");
@@ -1341,126 +1223,67 @@
       view.innerHTML = stateBlock({ glyph: "⚠", title: "Không tải được /api/runs", body: esc(e.message), error: true });
       return;
     }
-    if (!runs.length) {
-      view.innerHTML = stateBlock({
-        glyph: "∅",
-        title: "Chưa có FDRC run nào để so sánh",
-        body: "Cần ít nhất 1 run thuộc track Full-Duplex để dựng ma trận domain × model.",
-      });
+    // Real model runs only: exclude reference/sample/internal and tiny smoke runs.
+    const cols = runs.filter((r) => r.run_kind === "benchmark" && (r.models && r.models.length) && (r.episode_count || 0) >= 40);
+    if (!cols.length) {
+      view.innerHTML = stateBlock({ glyph: "∅", title: "Chưa có FDRC model-run nào để so sánh", body: "Cần ít nhất 1 run thật (provider) với ≥ 40 episode." });
       return;
     }
+    const famOrder = { openai: 0, gemini: 1, other: 2 };
+    cols.forEach((r) => { r._fam = compareModelFamily(r); r._live = compareIsLive(r); });
+    cols.sort((a, b) =>
+      (famOrder[a._fam.id] - famOrder[b._fam.id]) ||
+      ((a._live ? 1 : 0) - (b._live ? 1 : 0)) ||
+      a.run_id.localeCompare(b.run_id)
+    );
+    const scriptedByFam = {};
+    cols.forEach((r) => { if (!r._live && scriptedByFam[r._fam.id] === undefined) scriptedByFam[r._fam.id] = r.run_id; });
 
     view.innerHTML = `
-      <div class="section-head"><h2>So sánh model — Full-Duplex Repair-to-Commit</h2>
-        <span class="count">3 domain · 2 model · 3 difficulty</span></div>
-      ${renderCompareDifficultyTabs()}
-      <p class="modal-desc cmp-intro">Ma trận cố định theo domain <b>Media</b>, <b>Navigation</b>, <b>Automotive</b> và hai adapter Vivi chính: <b>OpenAI realtime</b>, <b>Gemini realtime</b>. Metric được tính lại theo từng domain và audio condition; Δ trong cột Gemini là chênh lệch so với OpenAI khi cả hai cùng có dữ liệu.</p>
+      <div class="section-head"><h2>So sánh run — Full-Duplex Repair-to-Commit</h2>
+        <span class="count">${cols.length} run · ${COMPARE_METRICS.length} metric</span></div>
+      <p class="modal-desc cmp-intro">Mỗi cột là một run thật (model + chế độ user). Δ ở cột <b>live</b> là chênh lệch so với run <b>scripted</b> cùng model. Số liệu là metric <b>toàn-run</b> (không tách theo domain).</p>
       <div id="cmp-table"><div class="skeleton"></div></div>`;
 
-    view.querySelectorAll(".cmp-difficulty-tab").forEach((button) => {
-      button.addEventListener("click", () => {
-        activeCompareDifficulty = button.getAttribute("data-difficulty") || activeCompareDifficulty;
-        view.querySelectorAll(".cmp-difficulty-tab").forEach((el) =>
-          el.setAttribute("aria-selected", el === button ? "true" : "false")
-        );
-        refreshCompareTable(runs);
-      });
-    });
-    await refreshCompareTable(runs);
-  }
-
-  async function refreshCompareTable(runs) {
     const host = document.getElementById("cmp-table");
-    if (!host) return;
-    host.innerHTML = `<div class="skeleton"></div>`;
-    const difficulty = activeCompareCondition();
-
-    const matrix = {};
-    const jobs = [];
-    COMPARE_DOMAINS.forEach((domain) => {
-      matrix[domain.id] = {};
-      COMPARE_MODELS.forEach((model) => {
-        const run = pickCompareRun(runs, domain, model, difficulty);
-        matrix[domain.id][model.id] = { run, data: null, error: null };
-        if (run) {
-          jobs.push(
-            loadCompareSummary(run.run_id, domain.id, difficulty.audioCondition)
-              .then((resp) => {
-                matrix[domain.id][model.id].data = {
-                  metrics: resp.metrics || {},
-                  episodeCount: resp.episode_count || 0,
-                  validCount: resp.metrics && typeof resp.metrics.valid_episode_count === "number"
-                    ? resp.metrics.valid_episode_count
-                    : null,
-                  status: resp.status,
-                };
-              })
-              .catch((e) => {
-                matrix[domain.id][model.id].error = e;
-              })
-          );
-        }
-      });
-    });
-
+    const summaries = {};
     try {
-      await Promise.all(jobs);
+      await Promise.all(cols.map(async (r) => { summaries[r.run_id] = await loadWholeRunSummary(r.run_id); }));
     } catch (e) {
-      host.innerHTML = stateBlock({ glyph: "⚠", title: "Không tải được episode rows", body: esc(e.message), error: true });
+      host.innerHTML = stateBlock({ glyph: "⚠", title: "Không tải được summary", body: esc(e.message), error: true });
       return;
     }
 
-    const sections = COMPARE_DOMAINS.map((domain) => {
-      const headCells = COMPARE_MODELS.map((model) => {
-        const slot = matrix[domain.id][model.id];
-        if (!slot.run) {
-          return `<th><div class="cmp-model-name">${esc(model.label)}</div><div class="cmp-run-sub">chưa có run</div></th>`;
-        }
-        const kind = H.effectiveRunKind(slot.run);
-        const kindChip = kind === "benchmark" ? "" : `<span class="chip gray">${esc(kind)}</span>`;
-        const count = slot.data ? slot.data.episodeCount : 0;
-        return `<th><div class="cmp-model-name">${esc(model.label)}</div>
-          <div class="cmp-run-name">${esc(slot.run.run_id)}</div>
-          <div class="cmp-run-sub">${count} ep ${kindChip}</div></th>`;
-      }).join("");
-
-      const rowsHtml = COMPARE_METRICS.map((metric) => {
-        const baseSlot = matrix[domain.id].openai_realtime;
-        const baseVal = metricValue(baseSlot && baseSlot.data, metric.key);
-        const cells = COMPARE_MODELS.map((model) => {
-          const slot = matrix[domain.id][model.id];
-          if (!slot.run) return `<td class="cmp-empty-cell">missing</td>`;
-          if (slot.error) return `<td class="cmp-empty-cell">error</td>`;
-          if (!slot.data || slot.data.episodeCount === 0) return `<td class="cmp-empty-cell">missing</td>`;
-          const v = metricValue(slot.data, metric.key);
-          const tone = H.metricTone(metric.key, v, metric.unit);
-          const valHtml = `<span class="cmp-val ${tone}">${esc(fmtCompareValue(metric.unit, v))}</span>`;
-          const delta = model.id !== "openai_realtime" && v !== null && baseVal !== null ? v - baseVal : null;
-          const dHtml = delta === null
-            ? "" : `<span class="cmp-delta ${deltaClass(metric.key, metric.unit, delta)}">${esc(fmtDelta(metric.unit, delta))}</span>`;
-          return `<td>${valHtml}${dHtml}</td>`;
-        }).join("");
-        return `<tr><th class="cmp-metric">${esc(metric.label)}</th>${cells}</tr>`;
-      }).join("");
-
-      return `<section class="cmp-domain-card">
-        <div class="cmp-domain-head">
-          <h3>${esc(domain.label)}</h3>
-          <span>${COMPARE_MODELS.length} model · ${COMPARE_METRICS.length} metrics</span>
-        </div>
-        <div class="table-wrap"><table class="episodes cmp-table">
-          <thead><tr><th class="cmp-metric-head">Metric</th>${headCells}</tr></thead>
-          <tbody>${rowsHtml}</tbody></table></div>
-      </section>`;
+    const headCells = cols.map((r) => {
+      const modeChip = `<span class="chip ${r._live ? "" : "gray"}">${r._live ? "live" : "scripted"}</span>`;
+      return `<th><div class="cmp-model-name">${esc(r._fam.label)}</div>
+        <div class="cmp-run-name">${esc(r.run_id)}</div>
+        <div class="cmp-run-sub">${r.episode_count || 0} ep ${modeChip}</div></th>`;
     }).join("");
 
-    host.innerHTML = `<div class="cmp-domain-grid">${sections}</div>`;
-    const available = COMPARE_DOMAINS.flatMap((domain) =>
-      COMPARE_MODELS
-        .map((model) => matrix[domain.id][model.id])
-        .filter((slot) => slot.run && slot.data && slot.data.episodeCount > 0)
-    ).length;
-    setStatus("compare", `${difficulty.label} · ${difficulty.audioCondition} · ${available}/6 domain-model slots · ${COMPARE_METRICS.length} metrics`);
+    const rowsHtml = COMPARE_METRICS.map((metric) => {
+      const cells = cols.map((r) => {
+        const v = compareMetricValue(summaries[r.run_id], metric.key);
+        const tone = H.metricTone(metric.key, v, metric.unit);
+        const valHtml = `<span class="cmp-val ${tone}">${esc(fmtCompareValue(metric.unit, v))}</span>`;
+        let dHtml = "";
+        if (r._live) {
+          const baseId = scriptedByFam[r._fam.id];
+          const bv = baseId ? compareMetricValue(summaries[baseId], metric.key) : null;
+          if (v !== null && bv !== null) {
+            const d = v - bv;
+            dHtml = `<span class="cmp-delta ${compareDeltaClass(metric.key, metric.unit, d)}">${esc(fmtCompareDelta(metric.unit, d))}</span>`;
+          }
+        }
+        return `<td>${valHtml}${dHtml}</td>`;
+      }).join("");
+      return `<tr><th class="cmp-metric">${esc(metric.label)}</th>${cells}</tr>`;
+    }).join("");
+
+    host.innerHTML = `<div class="table-wrap"><table class="episodes cmp-table">
+      <thead><tr><th class="cmp-metric-head">Metric</th>${headCells}</tr></thead>
+      <tbody>${rowsHtml}</tbody></table></div>`;
+    setStatus("compare", `${cols.length} run · ${COMPARE_METRICS.length} metric`);
   }
 
   // ---- router -----------------------------------------------------

@@ -109,7 +109,10 @@
     "response_honesty_rate", "tool_argument_accuracy",
     "old_intent_suppression_rate", "correction_uptake_rate", "cancel_success_rate",
     "yield_latency_pass_rate", "performance_yield_latency_pass_rate",
-    "fdrc_validity_rate",
+    // NOTE: fdrc_validity_rate is intentionally NOT here. It is a data-quality gate
+    // (are episodes well-formed enough to score?), not a performance score. Coloring it
+    // green at ≥90% made a run where the agent failed every episode look "good". Keep it
+    // neutral so it can't be misread as achievement; see _metric_result_comment.
   ]);
   // Rate metrics where HIGHER is worse (high value = bad → red).
   const BAD_HIGH_METRICS = new Set([
