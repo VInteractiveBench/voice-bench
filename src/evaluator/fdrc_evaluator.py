@@ -5,7 +5,12 @@ from copy import deepcopy
 from .critical_slot_evaluator import evaluate_critical_slots
 from .common import evaluate_common, summarize_shared, tool_call_matches
 from .fdrc_contract import summarize_fdrc_contract
-from .failure_taxonomy import FailureType, primary_failure
+from .failure_taxonomy import FailureType, is_blocking, primary_failure
+from .operational import (
+    argument_match_normalized,
+    state_matches_normalized,
+    tool_calls_covered,
+)
 from .fdrc_validity import classify_fdrc_validity, summarize_fdrc_validity
 from .voice_event_evaluator import evaluate_yield, event_time
 
@@ -294,6 +299,35 @@ def evaluate_fdrc_episode(episode: dict, overlay: dict, task: dict) -> dict:
         and result["scores"]["voice_pass"]
         and result["fdrc_validity"].get("valid")
         and not result["failure_types"]
+    )
+    # --- Operational tier (lenient on false negatives; strict scores untouched) ---
+    op_state_match = state_matches_normalized(
+        fdrc_task.get("expected_final_state", {}), result.get("final_state", {})
+    )
+    op_tool_match = tool_calls_covered(expected_calls, committed_calls)
+    op_argument_match = argument_match_normalized(expected_calls, committed_calls)
+    if cancelled:
+        op_correction = not cancel_attempted_tool_call
+    else:
+        op_correction = op_state_match
+    resolved_failures: set[str] = set()
+    if op_state_match:
+        resolved_failures.add(FailureType.FINAL_STATE_MISMATCH)
+    if op_correction:
+        resolved_failures.update(
+            {FailureType.CORRECTION_NOT_UPTAKEN, FailureType.REPAIR_INTENT_MISMATCH}
+        )
+    operational_blocking = [
+        failure
+        for failure in result["failure_types"]
+        if failure not in resolved_failures and is_blocking(failure)
+    ]
+    result["scores"]["operational_state_match"] = int(op_state_match)
+    result["scores"]["operational_tool_match"] = int(op_tool_match)
+    result["scores"]["operational_argument_match"] = int(op_argument_match)
+    result["scores"]["operational_correction_uptaken"] = int(op_correction)
+    result["scores"]["operational_final_pass"] = int(
+        bool(result["fdrc_validity"].get("valid")) and not operational_blocking
     )
     return result
 

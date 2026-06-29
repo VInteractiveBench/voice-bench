@@ -1,4 +1,12 @@
 from src.evaluator.failure_taxonomy import BLOCKING_FAILURES, is_blocking, FailureType
+from src.evaluator.operational import (
+    normalize_value,
+    deep_subset_normalized,
+    state_matches_normalized,
+    tool_calls_covered,
+    argument_match_normalized,
+)
+from src.evaluator.fdrc_evaluator import evaluate_fdrc_episode
 
 
 def test_blocking_set_contains_real_failures():
@@ -17,15 +25,6 @@ def test_diagnostic_failures_are_not_blocking():
 def test_unknown_failure_defaults_to_diagnostic():
     assert not is_blocking("SOME_FUTURE_FAILURE")
     assert "SOME_FUTURE_FAILURE" not in BLOCKING_FAILURES
-
-
-from src.evaluator.operational import (
-    normalize_value,
-    deep_subset_normalized,
-    state_matches_normalized,
-    tool_calls_covered,
-    argument_match_normalized,
-)
 
 
 def test_normalize_value_casefold_diacritics_whitespace():
@@ -69,3 +68,94 @@ def test_argument_match_normalized_only_considers_name_matched_calls():
     assert not argument_match_normalized(
         expected, [{"tool": "set_drive_mode", "args": {"mode": "eco"}}]
     )
+
+
+def _base_overlay_task():
+    # Uses real registry tools so schema / whitelist validation doesn't block tests.
+    # drive_system{device=drive_mode, value=...} is a valid MVP tool call.
+    # t_ms values on tool_calls prevent the early_commit POLICY_VIOLATION flag.
+    overlay = {
+        "expected_final_state": {"drive": {"mode": "Sport"}},
+        "expected_tool_calls": [
+            {"tool": "drive_system", "args": {"device": "drive_mode", "value": "Sport"}}
+        ],
+        "forbidden_tool_calls": [],
+        "final_intent": "set_sport",
+        "voice_timeline": [],
+        "voice_assertions": {},
+    }
+    task = {"expected_final_state": {"drive": {"mode": "Sport"}}}
+    return overlay, task
+
+
+def test_operational_pass_when_extra_call_and_casing_differ():
+    overlay, task = _base_overlay_task()
+    episode = {
+        "is_reference": True,
+        "benchmark_track": "full_duplex_repair_to_commit",
+        "tool_calls": [
+            {"tool": "search_places", "args": {"query": "x", "max_results": 1}, "t_ms": 3000},
+            {"tool": "drive_system", "args": {"device": "drive_mode", "value": "sport"}, "t_ms": 4000},
+        ],
+        "tool_results": [{"success": True}, {"success": True}],
+        "final_state": {"drive": {"mode": "sport"}},
+        "assistant_transcript": ["ok"],
+        "normalized_events": [],
+        "voice_events": [],
+    }
+    result = evaluate_fdrc_episode(episode, overlay, task)
+    assert result["scores"]["final_pass"] == 0
+    assert result["scores"]["operational_final_pass"] == 1
+    assert result["scores"]["operational_state_match"] == 1
+    assert result["scores"]["operational_tool_match"] == 1
+
+
+def test_operational_fails_on_blocking_policy_violation():
+    overlay, task = _base_overlay_task()
+    # Forbidden tool matches the committed call exactly (strict comparison) so
+    # FORBIDDEN_TOOL_CALL + OLD_INTENT_COMMITTED are raised — both are blocking
+    # and are NOT resolved by the operational tier.
+    overlay["forbidden_tool_calls"] = [
+        {"tool": "drive_system", "args": {"device": "drive_mode", "value": "sport"}}
+    ]
+    episode = {
+        "is_reference": True,
+        "benchmark_track": "full_duplex_repair_to_commit",
+        "tool_calls": [
+            {"tool": "drive_system", "args": {"device": "drive_mode", "value": "sport"}, "t_ms": 4000}
+        ],
+        "tool_results": [{"success": True}],
+        "final_state": {"drive": {"mode": "sport"}},
+        "assistant_transcript": ["ok"],
+        "normalized_events": [],
+        "voice_events": [],
+    }
+    result = evaluate_fdrc_episode(episode, overlay, task)
+    assert result["scores"]["operational_final_pass"] == 0
+
+
+def test_operational_never_below_strict_per_episode():
+    overlay, task = _base_overlay_task()
+    episode = {
+        "is_reference": True,
+        "benchmark_track": "full_duplex_repair_to_commit",
+        "tool_calls": [
+            {"tool": "drive_system", "args": {"device": "drive_mode", "value": "Sport"}, "t_ms": 4000}
+        ],
+        "tool_results": [{"success": True}],
+        "final_state": {"drive": {"mode": "Sport"}},
+        "assistant_transcript": ["ok"],
+        "normalized_events": [],
+        "voice_events": [],
+    }
+    result = evaluate_fdrc_episode(episode, overlay, task)
+    assert result["scores"]["operational_final_pass"] >= result["scores"]["final_pass"]
+
+
+def test_argument_match_normalized_vacuous_when_tool_never_called():
+    # tool_calls_covered would return False here; argument_match returns True
+    # because there are no matching tool names to check args against.
+    assert argument_match_normalized(
+        [{"tool": "set_mode", "args": {"mode": "sport"}}], []
+    )
+    assert not tool_calls_covered([{"tool": "set_mode", "args": {"mode": "sport"}}], [])
