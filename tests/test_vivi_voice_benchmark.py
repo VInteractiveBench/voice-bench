@@ -492,8 +492,103 @@ def test_fdrc_provider_fails_when_final_commit_destination_is_wrong():
     result = evaluate_fdrc_episode(episode, overlay, task)
 
     assert result["scores"]["final_pass"] == 0
-    assert FailureType.CORRECTION_NOT_UPTAKEN in result["failure_types"]
+    assert FailureType.REPAIR_INTENT_MISMATCH in result["failure_types"]
+    assert FailureType.CORRECTION_NOT_UPTAKEN not in result["failure_types"]
+    assert result["primary_failure_type"] == str(FailureType.REPAIR_INTENT_MISMATCH)
     assert result["critical_slot_result"]["passed"] is False
+
+
+def test_fdrc_provider_flags_cross_episode_repair_intent_mismatch():
+    tasks = load_base_tasks()
+    overlay = deepcopy(
+        next(row for row in load_overlays() if row["speech_overlay_id"] == "fdrc_navigation_005")
+    )
+    task = tasks[overlay["base_task_id"]]
+    initial_dest = "C\u00f4ng vi\u00ean Th\u1ed1ng Nh\u1ea5t"
+    repaired_dest = "C\u00f4ng vi\u00ean Y\u00ean S\u1edf"
+    leaked_dest = "C\u00f4ng vi\u00ean G\u00f2 V\u1ea5p"
+    overlay.update(
+        {
+            "initial_spoken_utterance": f"D\u1eabn t\u00f4i \u0111\u1ebfn {initial_dest}.",
+            "repair_utterance": f"Kh\u00f4ng, \u0111\u1ebfn {repaired_dest} c\u01a1.",
+            "initial_intent": {
+                "tool": "compute_routes",
+                "args": {
+                    "dest_name": initial_dest,
+                    "routing_mode": "fast",
+                    "dest_lat": 21.011,
+                    "dest_lng": 105.843,
+                },
+            },
+            "expected_critical_slots": {
+                "dest_name": repaired_dest,
+                "routing_mode": "fast",
+            },
+            "forbidden_tool_calls": [
+                {
+                    "tool": "compute_routes",
+                    "args": {
+                        "dest_name": initial_dest,
+                        "routing_mode": "fast",
+                        "dest_lat": 21.011,
+                        "dest_lng": 105.843,
+                    },
+                }
+            ],
+            "expected_tool_calls": [
+                {
+                    "tool": "compute_routes",
+                    "args": {
+                        "dest_name": repaired_dest,
+                        "routing_mode": "fast",
+                        "dest_lat": 20.959,
+                        "dest_lng": 105.831,
+                    },
+                }
+            ],
+        }
+    )
+    episode = reference_episode(
+        task, overlay, "full_duplex_repair_to_commit", "vi_north_normal"
+    )
+    episode["is_reference"] = False
+    episode["run_kind"] = "provider"
+    episode["tool_calls"] = [
+        {
+            "tool": "compute_routes",
+            "args": {
+                "dest_name": leaked_dest,
+                "routing_mode": "fast",
+                "origin_lat": 10.762622,
+                "origin_lng": 106.660172,
+                "dest_lat": 10.8171,
+                "dest_lng": 106.7051,
+            },
+            "t_ms": 8947,
+        }
+    ]
+    episode["tool_results"] = [{"success": True}]
+    episode["final_state"] = {"committed_intent": "compute_routes"}
+    episode["captured_slots"] = {}
+    episode["voice_events"] = [
+        {"event": "assistant_speech_start", "t_ms": 3023, "source": "observed"},
+        {"event": "user_interrupt_start", "t_ms": 4462, "source": "observed"},
+        {"event": "repair_audio_start", "t_ms": 4462, "source": "observed"},
+        {"event": "assistant_yielded", "t_ms": 3724, "source": "observed"},
+        {"event": "repair_transcript_done", "t_ms": 7142, "source": "observed"},
+    ]
+    episode["normalized_events"] = [
+        {"type": "tool_result", "t_ms": 8957, "tool": "compute_routes"},
+    ]
+
+    result = evaluate_fdrc_episode(episode, overlay, task)
+
+    assert result["scores"]["final_pass"] == 0
+    assert FailureType.REPAIR_INTENT_MISMATCH in result["failure_types"]
+    assert FailureType.CORRECTION_NOT_UPTAKEN not in result["failure_types"]
+    assert result["repair"]["repair_intent_mismatch"] is True
+    assert result["captured_slots"]["dest_name"] == leaked_dest
+    assert result["critical_slot_result"]["per_slot"]["dest_name"] is False
 
 
 def test_evaluate_episodes_embeds_overlay_snapshot():

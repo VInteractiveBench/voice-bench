@@ -421,11 +421,16 @@ def evaluate_episodes(
                         "value": episode.get("base_task_id"),
                     }
                 )
-            evaluated.append(invalid_episode_result(episode, errors))
+            result = invalid_episode_result(episode, errors)
+            if overlay is not None:
+                result["overlay_snapshot"] = overlay
+            evaluated.append(result)
             continue
         errors = validate_episode_log(episode, overlay, task)
         if errors:
-            evaluated.append(invalid_episode_result(episode, errors))
+            result = invalid_episode_result(episode, errors)
+            result["overlay_snapshot"] = overlay
+            evaluated.append(result)
             continue
         result = evaluator(episode, overlay, task)
         result["overlay_snapshot"] = overlay

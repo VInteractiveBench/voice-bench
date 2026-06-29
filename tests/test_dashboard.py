@@ -243,6 +243,10 @@ def test_dashboard_timeline_exposes_assistant_response_text(tmp_path):
             "text": "Đang chuyển chế độ lái.",
             "delta_count": 3,
             "source": "normalized",
+            "sources": ["normalized"],
+            "kind": "derived",
+            "lane": "assistant",
+            "timestamp_kind": "normalized",
             "priority": False,
         }
     ]
@@ -254,6 +258,10 @@ def test_dashboard_timeline_deduplicates_tool_call_sources(tmp_path):
     base = sample_fdrc_episode()
     tool_call = base["tool_calls"][0]
     episode = sample_fdrc_episode(
+        voice_events=[
+            {"event": "assistant_speech_expected_start", "t_ms": 2600, "source": "expected"},
+            {"event": "tool_commit_allowed_after", "t_ms": 4300, "source": "expected"},
+        ],
         normalized_events=[
             {"type": "assistant_speech_start", "t_ms": 2600},
             {"type": "user_audio_chunk_sent", "t_ms": 3300, "overlap": True},
@@ -274,7 +282,18 @@ def test_dashboard_timeline_deduplicates_tool_call_sources(tmp_path):
     tool_events = [event for event in detail["timeline"] if event["event"] == "tool_call"]
 
     assert len(tool_events) == 1
+    assert tool_events[0]["event"] == "tool_call"
     assert tool_events[0]["sources"] == ["normalized", "tool_calls"]
+    assert tool_events[0]["kind"] == "runtime"
+    assert tool_events[0]["lane"] == "tool"
+    assert tool_events[0]["timestamp_kind"] == "runtime_observed"
+
+    marker_events = [
+        event for event in detail["timeline"] if event["event"] == "tool_commit_allowed_after"
+    ]
+    assert marker_events[0]["kind"] == "marker"
+    assert marker_events[0]["lane"] == "marker"
+    assert marker_events[0]["timestamp_kind"] == "scheduled"
 
 
 def test_dashboard_fdrc_slot_eval_infers_poi_name_from_dest_name(tmp_path):
@@ -370,6 +389,8 @@ def test_dashboard_timeline_ui_labels_expected_speech_marker():
     assert "#071f3d" in styles_css
     assert "hủy lệnh được tôn trọng" in app_js
     assert "CANCEL_NOT_RESPECTED" in app_js
+    assert "Tiêu biểu" in app_js
+    assert "mẫu" in app_js
 
 
 def test_fdrc_required_metric_contract_is_non_null_for_scored_run(tmp_path):
@@ -486,6 +507,88 @@ def test_explain_metric_matches_summary_and_is_consistent(tmp_path):
         assert abs(result["value"] - displayed) < 1e-9
     listed = {e["episode_id"] for e in result["numerator_episodes"]}
     assert listed <= {"a1", "a2"}
+
+
+def test_explain_metric_splits_success_and_failed_samples(tmp_path):
+    run = tmp_path / "metric_samples_run"
+    run.mkdir()
+    episodes = [
+        sample_episode(
+            episode_id=f"pass_{index}",
+            policy_gating={"decision_correct": True},
+        )
+        for index in range(12)
+    ] + [
+        sample_episode(
+            episode_id=f"fail_{index}",
+            scores={**sample_episode()["scores"], "final_pass": 0},
+            policy_gating={"decision_correct": False},
+        )
+        for index in range(3)
+    ]
+    write_jsonl(run / "episodes.jsonl", episodes)
+
+    result = DashboardStore(tmp_path).explain_metric(
+        "metric_samples_run",
+        "policy_compliance_rate",
+        track="voice_policy_command_gating",
+    )
+
+    assert result["successful_episode_count"] == 12
+    assert result["failed_episode_count"] == 3
+    assert len(result["successful_episodes"]) == 10
+    assert len(result["failed_episodes"]) == 3
+    assert result["episode_sample_limit"] == 10
+    assert result["numerator_is_failure"] is False
+
+
+def test_explain_metric_keeps_fdrc_performance_pass_fail_samples(tmp_path):
+    run = tmp_path / "fdrc_performance_samples_run"
+    run.mkdir()
+
+    def fdrc_row(episode_id, final_pass):
+        return {
+            "episode_id": episode_id,
+            "benchmark_track": FDRC_TRACK,
+            "domain": "automotive",
+            "base_task_id": "synthetic_task",
+            "speech_overlay_id": "synthetic_overlay",
+            "accent_region": "north",
+            "speech_speed": "normal",
+            "fdrc_validity": {"valid": True, "reasons": []},
+            "scores": {"final_pass": int(final_pass), "state_match": int(final_pass)},
+            "repair": {
+                "correction_uptaken": bool(final_pass),
+                "old_intent_committed": False,
+                "forbidden_tool_called": False,
+            },
+            "failure_types": [] if final_pass else ["FINAL_STATE_MISMATCH"],
+        }
+
+    episodes = [
+        *(fdrc_row(f"pass_{index}", True) for index in range(12)),
+        *(fdrc_row(f"fail_{index}", False) for index in range(74)),
+    ]
+    write_jsonl(run / "episodes.jsonl", episodes)
+
+    result = DashboardStore(tmp_path).explain_metric(
+        "fdrc_performance_samples_run",
+        "performance_fdrc_pass_at_1",
+        track=FDRC_TRACK,
+    )
+
+    assert result["numerator"] == 12
+    assert result["denominator"] == 86
+    assert result["successful_episode_count"] == 12
+    assert result["failed_episode_count"] == 74
+    assert len(result["successful_episodes"]) == 10
+    assert len(result["failed_episodes"]) == 10
+    assert {row["episode_id"] for row in result["successful_episodes"]} <= {
+        f"pass_{index}" for index in range(12)
+    }
+    assert {row["episode_id"] for row in result["failed_episodes"]} <= {
+        f"fail_{index}" for index in range(74)
+    }
 
 
 def test_explain_metric_supports_latency_summary_cards(tmp_path):

@@ -32,6 +32,15 @@ PRIORITY_TIMELINE_EVENTS = {
     "tool_commit_allowed_after",
     "tool_call",
 }
+METRIC_NUMERATOR_IS_FAILURE = {
+    "forbidden_tool_call_rate",
+    "hallucinated_tool_rate",
+    "invalid_episode_count",
+    "out_of_scope_tool_call_rate",
+    "policy_violation_rate",
+    "tool_validation_error_rate",
+}
+METRIC_SAMPLE_LIMIT = 10
 
 RUN_JOBS: dict[str, dict[str, Any]] = {}
 
@@ -878,6 +887,43 @@ def _explain_evidence_rows(
     return rows
 
 
+def _explain_sample_rows(
+    metric_key: str,
+    selected_track: str | None,
+    episode_ids: list[str],
+    by_id: dict[str, dict[str, Any]],
+    *,
+    limit: int | None = METRIC_SAMPLE_LIMIT,
+) -> list[dict[str, Any]]:
+    rows = []
+    seen: set[str] = set()
+    for episode_id in episode_ids:
+        if episode_id in seen or episode_id not in by_id:
+            continue
+        seen.add(episode_id)
+        episode = by_id[episode_id]
+        fields = (
+            _policy_evidence_fields(metric_key, episode)
+            if selected_track == POLICY_TRACK
+            else _fdrc_evidence_fields(metric_key, episode)
+        )
+        rows.append(
+            {
+                "episode_id": episode_id,
+                "base_task_id": episode.get("base_task_id"),
+                "domain": episode.get("domain"),
+                "accent_region": episode.get("accent_region"),
+                "speech_speed": episode.get("speech_speed"),
+                "passed": _score_pass(episode),
+                "fdrc_valid": bool(episode.get("fdrc_validity", {}).get("valid")),
+                "fields": fields,
+            }
+        )
+        if limit is not None and len(rows) >= limit:
+            break
+    return rows
+
+
 def _flatten_metrics(metrics: dict[str, Any], latency_summary: list[dict[str, Any]]) -> dict[str, Any]:
     flat: dict[str, Any] = {
         key: value
@@ -1328,11 +1374,111 @@ def _timeline(episode: dict[str, Any]) -> list[dict[str, Any]]:
                     "source": "tool_calls",
                 }
             )
-    sorted_events = sorted(_dedupe_timeline_events(events), key=lambda event: event["t_ms"])
+    sorted_events = sorted(
+        (_enrich_timeline_event(event) for event in _dedupe_timeline_events(events)),
+        key=lambda event: event["t_ms"],
+    )
     return [
         {**event, "priority": event.get("event") in PRIORITY_TIMELINE_EVENTS}
         for event in sorted_events
     ]
+
+
+EXPECTED_TIMELINE_MARKERS = {
+    "assistant_speech_expected_start",
+    "assistant_should_yield_by",
+    "tool_commit_allowed_after",
+}
+
+USER_TIMELINE_EVENTS = {
+    "user_speech_start",
+    "user_interrupt_start",
+    "repair_audio_start",
+}
+
+ASSISTANT_TIMELINE_EVENTS = {
+    "assistant_speech_start",
+    "assistant_speech_stop",
+    "assistant_yielded",
+    "assistant_response",
+}
+
+TOOL_TIMELINE_EVENTS = {"tool_call", "tool_result"}
+
+ASR_TIMELINE_EVENTS = {"repair_transcript_done"}
+
+
+def _timeline_sources(event: dict[str, Any]) -> list[str]:
+    sources = event.get("sources")
+    if isinstance(sources, list) and sources:
+        return [str(source) for source in sources if source not in (None, "")]
+    source = event.get("source")
+    return [str(source)] if source not in (None, "") else []
+
+
+def _timeline_lane(event_name: str, sources: list[str]) -> str:
+    if "expected" in sources or event_name in EXPECTED_TIMELINE_MARKERS:
+        return "marker"
+    if event_name in USER_TIMELINE_EVENTS:
+        return "user"
+    if event_name in ASSISTANT_TIMELINE_EVENTS:
+        return "assistant"
+    if event_name in TOOL_TIMELINE_EVENTS:
+        return "tool"
+    if event_name == "final_state":
+        return "system"
+    if "expected" in sources:
+        return "marker"
+    return "system"
+
+
+def _timeline_kind(event_name: str, sources: list[str]) -> str:
+    if "expected" in sources or event_name in EXPECTED_TIMELINE_MARKERS:
+        return "marker"
+    if event_name == "assistant_response":
+        return "derived"
+    if event_name == "tool_call" and sources and all(
+        source == "normalized" for source in sources
+    ):
+        return "derived"
+    if "normalized" in sources and not (
+        "observed" in sources or "tool_calls" in sources
+    ):
+        return "derived"
+    return "runtime"
+
+
+def _timeline_timestamp_kind(event_name: str, kind: str, sources: list[str]) -> str:
+    if kind == "marker" or "expected" in sources:
+        return "scheduled"
+    if event_name in {"user_speech_start", "user_interrupt_start", "repair_audio_start", "assistant_speech_start"}:
+        return "audio_onset"
+    if event_name in ASR_TIMELINE_EVENTS:
+        return "asr_done"
+    if kind == "derived":
+        return "normalized"
+    return "runtime_observed"
+
+
+def _enrich_timeline_event(event: dict[str, Any]) -> dict[str, Any]:
+    event_name = str(event.get("event") or "")
+    sources = _timeline_sources(event)
+    lane = event.get("lane") or _timeline_lane(event_name, sources)
+    kind = event.get("kind") or _timeline_kind(event_name, sources)
+    timestamp_kind = event.get("timestamp_kind") or _timeline_timestamp_kind(
+        event_name, kind, sources
+    )
+    source = event.get("source")
+    if source in (None, "") and sources:
+        source = sources[0]
+    return {
+        **event,
+        "source": source,
+        "sources": sources,
+        "kind": kind,
+        "lane": lane,
+        "timestamp_kind": timestamp_kind,
+    }
 
 
 def _timeline_key(event: dict[str, Any]) -> tuple[Any, ...]:
@@ -1713,6 +1859,24 @@ class DashboardStore:
             str(episode_id)
             for episode_id in explanation.get("denominator_episode_ids", [])
         ]
+        numerator_id_set = {
+            str(episode_id)
+            for episode_id in explanation.get("numerator_episode_ids", [])
+        }
+        if metric_key in METRIC_NUMERATOR_IS_FAILURE:
+            failed_episode_ids = [
+                episode_id for episode_id in denominator_episode_ids if episode_id in numerator_id_set
+            ]
+            successful_episode_ids = [
+                episode_id for episode_id in denominator_episode_ids if episode_id not in numerator_id_set
+            ]
+        else:
+            successful_episode_ids = [
+                episode_id for episode_id in denominator_episode_ids if episode_id in numerator_id_set
+            ]
+            failed_episode_ids = [
+                episode_id for episode_id in denominator_episode_ids if episode_id not in numerator_id_set
+            ]
         evidence_rows = _explain_evidence_rows(
             metric_key,
             selected_track,
@@ -1754,6 +1918,24 @@ class DashboardStore:
                 "numerator_episodes": numerator_episodes,
                 "denominator_episode_count": len(denominator_episode_ids),
                 "denominator_episodes": evidence_rows,
+                "successful_episode_count": len(successful_episode_ids),
+                "failed_episode_count": len(failed_episode_ids),
+                "successful_episodes": _explain_sample_rows(
+                    metric_key,
+                    selected_track,
+                    successful_episode_ids,
+                    by_id,
+                    limit=None,
+                ),
+                "failed_episodes": _explain_sample_rows(
+                    metric_key,
+                    selected_track,
+                    failed_episode_ids,
+                    by_id,
+                    limit=None,
+                ),
+                "episode_sample_limit": METRIC_SAMPLE_LIMIT,
+                "numerator_is_failure": metric_key in METRIC_NUMERATOR_IS_FAILURE,
                 "denominator_condition_vi": explanation.get("denominator_condition_vi"),
                 "pass_condition_vi": explanation.get("pass_condition_vi"),
                 "evaluation_checks": explanation.get("evaluation_checks_vi", []),

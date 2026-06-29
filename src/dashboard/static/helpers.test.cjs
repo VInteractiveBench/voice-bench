@@ -105,6 +105,14 @@ t("classifyEvent buckets", () => {
   assert.strictEqual(VB.classifyEvent("user_interrupt_start").cls, "interrupt");
   assert.strictEqual(VB.classifyEvent("assistant_yielded").cls, "yield");
   assert.strictEqual(VB.classifyEvent("assistant_should_yield_by").cls, "expected");
+  assert.deepStrictEqual(
+    VB.classifyEvent({ event: "tool_commit_allowed_after", kind: "marker", lane: "marker" }),
+    { lane: "marker", cls: "expected" }
+  );
+  assert.deepStrictEqual(
+    VB.classifyEvent({ event: "assistant_response", kind: "derived", lane: "assistant" }),
+    { lane: "assistant", cls: "derived" }
+  );
 });
 
 // ---- routing ----

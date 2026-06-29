@@ -237,8 +237,18 @@
 
   // ---- timeline geometry ------------------------------------------
   // Bucket a raw voice/timeline event into a marker class + lane key.
-  function classifyEvent(name) {
-    const n = String(name || "");
+  function classifyEvent(input) {
+    const event = input && typeof input === "object" ? input : { event: input };
+    const n = String(event.event || "");
+    if (event.kind || event.lane) {
+      const lane = event.lane || "system";
+      if (event.kind === "marker") return { lane, cls: "expected" };
+      if (n === "tool_call") return { lane, cls: "tool" };
+      if (/interrupt/.test(n)) return { lane, cls: "interrupt" };
+      if (/yield/.test(n) && !/should_yield/.test(n)) return { lane, cls: "yield" };
+      if (event.kind === "derived") return { lane, cls: "derived" };
+      return { lane, cls: "observed" };
+    }
     if (n === "tool_call") return { lane: "tool", cls: "tool" };
     if (/interrupt/.test(n)) return { lane: "events", cls: "interrupt" };
     if (/yield/.test(n) && !/should_yield/.test(n)) return { lane: "events", cls: "yield" };

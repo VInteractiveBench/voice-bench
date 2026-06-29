@@ -508,6 +508,66 @@
     </tr>`;
   }
 
+  function explainOutcomeTable(runId, rows, total, kind, sampleLimit) {
+    const label = kind === "success" ? "đã thành công" : "đã thất bại";
+    const empty = kind === "success"
+      ? "Không có episode nào thành công theo điều kiện metric này."
+      : "Không có episode nào thất bại theo điều kiện metric này.";
+    const capped = total > rows.length;
+    const heading = capped
+      ? `Tiêu biểu ${rows.length || sampleLimit || 10} mẫu ${label}`
+      : `${total} mẫu ${label}`;
+    const note = capped
+      ? `<p class="modal-note">${esc(heading)} trong tổng ${esc(total)} mẫu ${label}; mở Episode Explorer để xem đầy đủ.</p>`
+      : `<p class="modal-note">${esc(heading)}.</p>`;
+    if (!rows.length) {
+      return `<h4>${esc(heading)}</h4><p class="modal-note">${esc(empty)}</p>`;
+    }
+    return `<h4>${esc(heading)}</h4>
+      ${note}
+      <div class="modal-table-wrap"><table class="modal-table modal-evidence"><thead><tr><th>episode</th><th>domain</th><th>persona</th><th>evidence fields</th></tr></thead>
+        <tbody>${rows.map((ep) => explainEvidenceRow(runId, ep)).join("")}</tbody></table></div>`;
+  }
+
+  function explainLegacyOutcomeData(data) {
+    const explicitSuccessRows = Array.isArray(data.successful_episodes) ? data.successful_episodes : null;
+    const explicitFailedRows = Array.isArray(data.failed_episodes) ? data.failed_episodes : null;
+    const explicitSuccessCount = Number.isFinite(data.successful_episode_count) ? data.successful_episode_count : null;
+    const explicitFailedCount = Number.isFinite(data.failed_episode_count) ? data.failed_episode_count : null;
+    if (explicitSuccessRows && explicitFailedRows && explicitSuccessCount !== null && explicitFailedCount !== null) {
+      return {
+        successRows: explicitSuccessRows,
+        failedRows: explicitFailedRows,
+        successCount: explicitSuccessCount,
+        failedCount: explicitFailedCount,
+      };
+    }
+
+    const denominatorRows = Array.isArray(data.denominator_episodes) ? data.denominator_episodes : [];
+    const numeratorRows = Array.isArray(data.numerator_episodes) ? data.numerator_episodes : [];
+    const denominatorById = new Map(denominatorRows.map((ep) => [String(ep.episode_id), ep]));
+    const numeratorIds = new Set(numeratorRows.map((ep) => String(ep.episode_id)));
+    denominatorRows.forEach((ep) => {
+      if (ep.in_numerator === true) numeratorIds.add(String(ep.episode_id));
+    });
+    const enrichedNumeratorRows = numeratorRows.map((ep) => denominatorById.get(String(ep.episode_id)) || ep);
+    const denominatorNonNumeratorRows = denominatorRows.filter((ep) => !numeratorIds.has(String(ep.episode_id)));
+    const denominatorNumeratorRows = denominatorRows.filter((ep) => numeratorIds.has(String(ep.episode_id)));
+    const numeratorSampleRows = denominatorNumeratorRows.length ? denominatorNumeratorRows : enrichedNumeratorRows;
+
+    const numerator = Number.isFinite(data.numerator) ? data.numerator : numeratorRows.length;
+    const denominator = Number.isFinite(data.denominator) ? data.denominator : denominatorRows.length;
+    const complement = Math.max(0, denominator - numerator);
+    const numeratorIsFailure = data.numerator_is_failure === true;
+
+    return {
+      successRows: explicitSuccessRows || (numeratorIsFailure ? denominatorNonNumeratorRows : numeratorSampleRows),
+      failedRows: explicitFailedRows || (numeratorIsFailure ? numeratorSampleRows : denominatorNonNumeratorRows),
+      successCount: explicitSuccessCount !== null ? explicitSuccessCount : (numeratorIsFailure ? complement : numerator),
+      failedCount: explicitFailedCount !== null ? explicitFailedCount : (numeratorIsFailure ? numerator : complement),
+    };
+  }
+
   function renderMetricModal(runId, data) {
     let bodyHtml;
     if (!data.supported) {
@@ -520,8 +580,24 @@
         : H.fmtPct(v);
       const headline = fmtVal(data.value);              // displayed value (matches the card)
       const recomputed = fmtVal(data.recomputed_value); // recomputed from episodes = num/denom
-      const eps = (data.numerator_episodes || []);
-      const evidence = data.denominator_episodes || [];
+      const outcomeData = explainLegacyOutcomeData(data);
+      const successRows = outcomeData.successRows || [];
+      const failedRows = outcomeData.failedRows || [];
+      const sampleLimit = data.episode_sample_limit || 10;
+      const successTable = explainOutcomeTable(
+        runId,
+        successRows,
+        outcomeData.successCount || 0,
+        "success",
+        sampleLimit
+      );
+      const failedTable = explainOutcomeTable(
+        runId,
+        failedRows,
+        outcomeData.failedCount || 0,
+        "failed",
+        sampleLimit
+      );
       const calcHtml = data.calculation_vi
         ? `<div class="modal-calc">
             <span class="modal-calc-num">${esc(headline)}</span>
@@ -534,24 +610,9 @@
             <span class="modal-calc-ratio">${esc(ratio)}</span>
             <span class="modal-calc-lbl">(${esc(data.numerator_label_vi)} ÷ ${esc(data.row_set_label_vi)})</span>
           </div>`;
-      const epTable = eps.length
-        ? `<div class="modal-table-wrap"><table class="modal-table modal-numerator"><thead><tr><th>episode</th><th>domain</th><th>persona</th><th>kết quả</th></tr></thead>
-            <tbody>${eps.map((ep) => explainEpisodeRow(runId, ep)).join("")}</tbody></table></div>`
-        : `<p class="modal-note">Tử số rỗng — không episode nào thỏa điều kiện.</p>`;
       const checks = (data.evaluation_checks || []).length
         ? `<div class="modal-checks">${data.evaluation_checks.map((x) => `<code>${esc(x)}</code>`).join("")}</div>`
         : `<p class="modal-note">Evaluator không khai báo field kiểm tra chi tiết cho metric này.</p>`;
-      const evidenceTable = evidence.length
-        ? `<div class="modal-table-wrap"><table class="modal-table modal-evidence"><thead><tr><th>episode</th><th>domain</th><th>persona</th><th>evidence fields</th></tr></thead>
-            <tbody>${evidence.map((ep) => explainEvidenceRow(runId, ep)).join("")}</tbody></table></div>`
-        : `<p class="modal-note">Không có episode trong mẫu số để hiển thị evidence.</p>`;
-      // The evidence list is a capped sample, not the full denominator — say so explicitly
-      // so "12/90" can't be misread as "only 12 episodes qualify".
-      const denomCount = data.denominator_episode_count ?? data.denominator;
-      const evidenceHeading =
-        denomCount != null && Number(denomCount) > evidence.length
-          ? `Evidence (mẫu ${evidence.length} trong ${esc(denomCount)} episode mẫu số — đã cắt bớt)`
-          : `Evidence (toàn bộ ${esc(denomCount ?? evidence.length)} episode mẫu số)`;
       const explorerLink = data.explorer_filter
         ? `<a class="btn btn-ghost" id="modal-explorer" href="${H.buildHash({ tab: ACTIVE.tab, view: "episodes", runId })}">Mở Episode Explorer →</a>`
         : "";
@@ -574,10 +635,8 @@
         </div>
         <h4>Evaluator đã kiểm tra</h4>
         ${checks}
-        <h4>${evidenceHeading}</h4>
-        ${evidenceTable}
-        <h4>Episode liên quan đến tử số (${eps.length})</h4>
-        ${epTable}
+        ${successTable}
+        ${failedTable}
         ${explorerLink}`;
     }
     return `<div class="modal-backdrop" id="metric-modal">
@@ -915,7 +974,8 @@
     if (repair.old_intent_committed) warnings.push("OLD_INTENT_COMMITTED");
     if (repair.forbidden_tool_called) warnings.push("FORBIDDEN_TOOL_CALL");
     if (repair.cancel_respected === false || repair.cancel_attempted_tool_call) warnings.push("CANCEL_NOT_RESPECTED");
-    if (repair.correction_uptaken === false) warnings.push("CORRECTION_NOT_UPTAKEN");
+    if (repair.repair_intent_mismatch) warnings.push("REPAIR_INTENT_MISMATCH");
+    if (repair.correction_uptaken === false && !repair.repair_intent_mismatch) warnings.push("CORRECTION_NOT_UPTAKEN");
     if (stateDiff.matches === false) warnings.push("FINAL_STATE_MISMATCH");
 
     const warnHtml = warnings.length
@@ -998,17 +1058,18 @@
 
     const W = 1040, padL = 96, padR = 24, top = 30, laneH = 50;
     const lanes = [
-      { key: "user", label: "User" },
-      { key: "assistant", label: "Assistant" },
-      { key: "events", label: "Events" },
-      { key: "tool", label: "Tool / State" },
+      { key: "user", label: "Người dùng" },
+      { key: "assistant", label: "Trợ lý" },
+      { key: "marker", label: "Mốc đánh giá" },
+      { key: "tool", label: "Công cụ / Trạng thái" },
+      { key: "system", label: "Hệ thống" },
     ];
     const laneIndex = {}; lanes.forEach((l, i) => (laneIndex[l.key] = i));
     const innerH = lanes.length * laneH;
     const H_ = top + innerH + 26;
     const duration = H.timelineDuration(evs);
     const x = H.scaler(duration, padL, W - padR);
-    const laneY = (k) => top + laneIndex[k] * laneH;
+    const laneY = (k) => top + (laneIndex[k] ?? laneIndex.marker ?? 0) * laneH;
 
     let svg = `<svg class="tl-svg" viewBox="0 0 ${W} ${H_}" width="100%" preserveAspectRatio="xMinYMin meet" style="min-width:760px">`;
 
@@ -1030,23 +1091,23 @@
     const rw = H.repairWindow(evs);
     if (rw) {
       svg += `<rect class="tl-repair" x="${x(rw.start)}" y="${top}" width="${Math.max(2, x(rw.end) - x(rw.start))}" height="${innerH}"/>`;
-      svg += `<text class="tl-axis-tick" x="${x(rw.start) + 4}" y="${top + 11}" fill="var(--warn)">repair window</text>`;
+      svg += `<text class="tl-axis-tick" x="${x(rw.start) + 4}" y="${top + 11}" fill="var(--warn)">cửa sổ sửa lệnh</text>`;
     }
 
     // yield bracket
     const interrupt = H.findEvent(evs, (e) => /interrupt/.test(e.event || ""));
     const yielded = H.findEvent(evs, (e) => /yield/.test(e.event || "") && !/should_yield/.test(e.event || ""));
     if (interrupt && yielded) {
-      const yy = laneY("events") + laneH - 8;
+      const yy = laneY("marker") + laneH - 8;
       svg += `<line class="tl-threshold" x1="${x(interrupt.t_ms)}" y1="${yy}" x2="${x(yielded.t_ms)}" y2="${yy}"/>`;
-      svg += `<text class="tl-axis-tick" x="${(x(interrupt.t_ms) + x(yielded.t_ms)) / 2}" y="${yy - 4}" text-anchor="middle" fill="var(--pass)">yield ${H.fmtMs(opts && opts.yieldLatency != null ? opts.yieldLatency : yielded.t_ms - interrupt.t_ms)}</text>`;
+      svg += `<text class="tl-axis-tick" x="${(x(interrupt.t_ms) + x(yielded.t_ms)) / 2}" y="${yy - 4}" text-anchor="middle" fill="var(--pass)">nhường lời ${H.fmtMs(opts && opts.yieldLatency != null ? opts.yieldLatency : yielded.t_ms - interrupt.t_ms)}</text>`;
     }
 
     const early = H.earlyCommit(evs);
 
     // markers
     evs.forEach((e) => {
-      const c = H.classifyEvent(e.event);
+      const c = H.classifyEvent(e);
       const ly = laneY(c.lane);
       const cx = x(e.t_ms);
       const isEarlyTool = c.cls === "tool" && early && (() => {
@@ -1056,7 +1117,7 @@
       const cls = `tl-marker ${c.cls} ${e.source === "expected" ? "expected" : "observed"} ${isEarlyTool ? "early" : ""}`;
       const dotColor = {
         yield: "var(--pass)", interrupt: "var(--warn)", tool: isEarlyTool ? "var(--fail)" : "var(--mutate)",
-        expected: "var(--gray)", observed: "var(--observed)",
+        expected: "var(--gray)", observed: "var(--observed)", derived: "var(--faint)",
       }[c.cls] || "var(--observed)";
       const note = timelineDetail(e);
       const sources = timelineSources(e);
@@ -1070,40 +1131,57 @@
     svg += `</svg>`;
 
     const legend = `<div class="legend">
-      <span><i style="border-color:var(--observed)"></i>observed</span>
-      <span><i style="border-color:var(--gray);border-top-style:dashed"></i>expected</span>
-      <span><i style="border-color:var(--warn)"></i>interrupt</span>
-      <span><i style="border-color:var(--pass)"></i>yield</span>
-      <span><i style="border-color:var(--mutate)"></i>tool</span>
-      <span><i style="border-color:var(--fail)"></i>early commit</span>
+      <span><i style="border-color:var(--observed)"></i>đã quan sát</span>
+      <span><i style="border-color:var(--gray);border-top-style:dashed"></i>dự kiến</span>
+      <span><i style="border-color:var(--warn)"></i>ngắt lời</span>
+      <span><i style="border-color:var(--pass)"></i>nhường lời</span>
+      <span><i style="border-color:var(--mutate)"></i>công cụ</span>
+      <span><i style="border-color:var(--fail)"></i>commit sớm</span>
     </div>`;
     const eventList = renderTimelineEventList(evs);
 
     return `<div class="timeline-card">
-      <div class="section-head"><h2>Full-Duplex Timeline</h2><span class="count">${evs.length} events</span></div>
+      <div class="section-head"><h2>Timeline song công</h2><span class="count">${evs.length} sự kiện</span></div>
       ${legend}<div class="timeline-svg-wrap">${svg}</div>${eventList}</div>`;
   }
 
   function renderTimelineEventList(events) {
+    const laneLabels = {
+      user: "Người dùng",
+      assistant: "Trợ lý",
+      events: "Sự kiện",
+      marker: "Mốc",
+      tool: "Công cụ",
+      system: "Hệ thống",
+    };
+    const kindLabels = {
+      runtime: "runtime",
+      marker: "marker",
+      derived: "derived",
+    };
     const rows = (events || [])
       .slice()
       .sort((a, b) => a.t_ms - b.t_ms)
       .map((e) => {
-        const c = H.classifyEvent(e.event);
+        const c = H.classifyEvent(e);
         const note = timelineDetail(e);
         const sources = timelineSources(e);
-        const source = sources ? `<span class="tl-event-source">${esc(sources)}</span>` : "";
+        const isSpeechNote = Boolean(e.text);
+        const noteClass = isSpeechNote ? " tl-event-note-speech" : "";
         return `<div class="tl-event-row tl-event-${esc(c.cls)}">
+          <div class="tl-event-kind">${esc(kindLabels[e.kind] || e.kind || c.cls)}</div>
           <div class="tl-event-time">${esc(H.fmtMs(e.t_ms))}</div>
-          <div class="tl-event-lane">${esc(c.lane)}</div>
-          <div class="tl-event-name">${esc(timelineLabel(e.event))}${source}</div>
-          <div class="tl-event-note">${esc(note || "—")}</div>
+          <div class="tl-event-lane">${esc(laneLabels[c.lane] || c.lane)}</div>
+          <div class="tl-event-name">${esc(timelineLabel(e.event))}</div>
+          <div class="tl-event-source">${esc(sources || "—")}</div>
+          <div class="tl-event-timestamp">${esc(e.timestamp_kind || "—")}</div>
+          <div class="tl-event-note${noteClass}">${esc(note || "—")}</div>
         </div>`;
       })
       .join("");
     return `<div class="tl-event-list">
       <div class="tl-event-head">
-        <span>Time</span><span>Lane</span><span>Event</span><span>Detail</span>
+        <span>Loại</span><span>Thời điểm</span><span>Luồng</span><span>Sự kiện</span><span>Nguồn</span><span>Mốc thời gian</span><span>Chi tiết</span>
       </div>
       ${rows}
     </div>`;
@@ -1117,42 +1195,49 @@
 
   function timelineLabel(name) {
     const labels = {
-      assistant_speech_expected_start: "expected assistant speech window",
-      assistant_should_yield_by: "expected yield deadline",
-      tool_commit_allowed_after: "expected commit gate",
-      user_interrupt_start: "user interrupt",
-      repair_audio_start: "repair audio",
-      repair_transcript_done: "repair transcript",
-      assistant_yielded: "assistant yielded",
-      assistant_speech_start: "assistant speech start",
-      assistant_speech_stop: "assistant speech stop",
-      assistant_response: "assistant response",
-      tool_call: "tool call",
-      tool_result: "tool result",
+      assistant_speech_expected_start: "cửa sổ phát lời dự kiến",
+      assistant_should_yield_by: "hạn nhường lời dự kiến",
+      tool_commit_allowed_after: "cổng commit dự kiến",
+      user_interrupt_start: "người dùng ngắt lời",
+      repair_audio_start: "âm thanh sửa lệnh",
+      repair_transcript_done: "bản chép sửa lệnh",
+      assistant_yielded: "trợ lý đã nhường lời",
+      assistant_speech_start: "trợ lý bắt đầu nói",
+      assistant_speech_stop: "trợ lý dừng nói",
+      assistant_response: "phản hồi của trợ lý",
+      tool_call: "lệnh gọi công cụ",
+      tool_result: "kết quả công cụ",
     };
     return labels[name] || shortEvent(name);
   }
 
   function timelineSources(e) {
-    if (Array.isArray(e.sources) && e.sources.length) return e.sources.join(" + ");
-    return e.source || "";
+    const labels = {
+      expected: "dự kiến",
+      observed: "đã quan sát",
+      normalized: "đã chuẩn hóa",
+      tool_calls: "tool_calls",
+    };
+    const label = (value) => labels[value] || value || "";
+    if (Array.isArray(e.sources) && e.sources.length) return e.sources.map(label).join(" + ");
+    return label(e.source);
   }
 
   function timelineDetail(e) {
     if (e.text) return e.text;
     if (e.tool) return `${e.tool}(${argsText(e.args)})`;
     const details = {
-      assistant_speech_expected_start: "expected scheduling marker, not an observed assistant action",
-      assistant_should_yield_by: "deadline for yielding after barge-in",
-      tool_commit_allowed_after: "earliest allowed side-effect commit",
-      user_interrupt_start: "observed overlapping user repair",
-      repair_audio_start: "observed repair audio delivery",
-      repair_transcript_done: "repair transcript became available",
-      assistant_yielded: "assistant stopped or yielded after interrupt",
-      assistant_speech_start: "observed assistant audio start",
-      assistant_speech_stop: "observed assistant audio stop",
+      assistant_speech_expected_start: "mốc lập lịch dự kiến, không phải hành động trợ lý đã thực hiện",
+      assistant_should_yield_by: "hạn cuối để nhường lời sau khi người dùng chen ngang",
+      tool_commit_allowed_after: "thời điểm sớm nhất được phép commit tác động phụ",
+      user_interrupt_start: "đã quan sát người dùng sửa lệnh trong lúc trợ lý đang nói",
+      repair_audio_start: "đã quan sát âm thanh sửa lệnh được phát",
+      repair_transcript_done: "bản chép lời sửa lệnh đã sẵn sàng",
+      assistant_yielded: "trợ lý đã dừng hoặc nhường lời sau khi bị ngắt",
+      assistant_speech_start: "đã quan sát âm thanh trợ lý bắt đầu",
+      assistant_speech_stop: "đã quan sát âm thanh trợ lý dừng",
     };
-    return details[e.event] || "lifecycle marker";
+    return details[e.event] || "mốc vòng đời";
   }
 
   // ================================================================

@@ -573,7 +573,7 @@ table.episodes tbody tr:last-child td { border-bottom: none; }
 .tl-event-head,
 .tl-event-row {
   display: grid;
-  grid-template-columns: 86px 104px minmax(180px, 0.9fr) minmax(260px, 1.4fr);
+  grid-template-columns: 78px 86px 90px minmax(150px, 0.9fr) 118px 128px minmax(220px, 1.4fr);
   gap: 0;
   align-items: stretch;
 }
@@ -598,26 +598,38 @@ table.episodes tbody tr:last-child td { border-bottom: none; }
   overflow-wrap: anywhere;
 }
 .tl-event-time { color: var(--text-hi); font-variant-numeric: tabular-nums; }
+.tl-event-kind,
 .tl-event-lane { color: var(--muted); text-transform: uppercase; font-size: 10.5px; letter-spacing: 0.08em; }
 .tl-event-name { color: var(--text-hi); }
 .tl-event-note { color: var(--muted); }
+.tl-event-note-speech {
+  color: #071f3d;
+  font-weight: 800;
+}
 .tl-event-source {
-  display: inline-block;
-  margin-left: 6px;
   color: var(--faint);
   font-size: 10px;
 }
+.tl-event-timestamp { color: var(--faint); font-size: 10px; }
 .tl-event-observed { box-shadow: inset 3px 0 0 var(--observed); }
 .tl-event-expected { box-shadow: inset 3px 0 0 var(--gray); }
 .tl-event-interrupt { box-shadow: inset 3px 0 0 var(--warn); }
 .tl-event-yield { box-shadow: inset 3px 0 0 var(--pass); }
 .tl-event-tool { box-shadow: inset 3px 0 0 var(--mutate); }
+.tl-event-derived { box-shadow: inset 3px 0 0 var(--faint); }
 @media (max-width: 760px) {
   .tl-event-head { display: none; }
   .tl-event-row {
     grid-template-columns: 82px 1fr;
   }
-  .tl-event-lane { text-align: right; }
+  .tl-event-time { text-align: right; }
+  .tl-event-kind,
+  .tl-event-lane,
+  .tl-event-source,
+  .tl-event-timestamp {
+    grid-column: 1 / -1;
+    padding-top: 2px;
+  }
   .tl-event-name,
   .tl-event-note {
     grid-column: 1 / -1;

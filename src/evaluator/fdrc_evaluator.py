@@ -92,6 +92,16 @@ def _last_matching_commit(calls: list[dict], expected_calls: list[dict]) -> dict
     return None
 
 
+def _last_final_intent_tool_commit(calls: list[dict], expected_calls: list[dict]) -> dict | None:
+    expected_tools = {call.get("tool") for call in expected_calls if isinstance(call, dict)}
+    if not expected_tools:
+        return None
+    for call in reversed(calls):
+        if call.get("tool") in expected_tools:
+            return call
+    return None
+
+
 def _infer_fdrc_captured_slots(overlay: dict, calls: list[dict]) -> dict:
     expected = overlay.get("expected_critical_slots", {})
     if not isinstance(expected, dict) or not expected:
@@ -151,6 +161,12 @@ def evaluate_fdrc_episode(episode: dict, overlay: dict, task: dict) -> dict:
         captured_slots = inferred_slots
     result["captured_slots"] = captured_slots
     result["critical_slot_result"] = evaluate_critical_slots(expected_slots, captured_slots)
+    final_intent_tool_commit = _last_final_intent_tool_commit(committed_calls, expected_calls)
+    repair_intent_mismatch = bool(
+        expected_calls
+        and final_intent_tool_commit is not None
+        and not result["critical_slot_result"].get("passed", True)
+    )
     missing_observed = _missing_observed_events(result, expected_calls)
     yield_result = evaluate_yield(
         result.get("voice_events", []),
@@ -198,7 +214,9 @@ def evaluate_fdrc_episode(episode: dict, overlay: dict, task: dict) -> dict:
             result["failure_types"].append(FailureType.CANCEL_NOT_RESPECTED)
     if cancel_attempted_tool_call:
         result["failure_types"].append(FailureType.CANCEL_NOT_RESPECTED)
-    if not correction_uptaken:
+    if repair_intent_mismatch:
+        result["failure_types"].append(FailureType.REPAIR_INTENT_MISMATCH)
+    elif not correction_uptaken:
         result["failure_types"].append(FailureType.CORRECTION_NOT_UPTAKEN)
     # Yield latency only applies when a real barge-in occurred (the assistant was
     # already speaking when the interrupt fired). If the provider had not started
@@ -246,6 +264,7 @@ def evaluate_fdrc_episode(episode: dict, overlay: dict, task: dict) -> dict:
         "correction_text": overlay.get("repair_utterance"),
         "old_intent_committed": forbidden_called,
         "correction_uptaken": correction_uptaken,
+        "repair_intent_mismatch": repair_intent_mismatch,
         "forbidden_tool_called": forbidden_called,
         "cancel_respected": bool(cancelled and not cancel_attempted_tool_call),
         "cancel_attempted_tool_call": cancel_attempted_tool_call,

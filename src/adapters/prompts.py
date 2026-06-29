@@ -21,6 +21,8 @@ You must:
 
 FDRC_PROMPT = """Quy tắc full-duplex sửa lệnh trước khi chốt (repair-to-commit) — BẮT BUỘC:
 
+Hủy = KHÔNG gọi bất kỳ tool nào; cancel case đúng phải có zero attempted tool calls.
+
 1. LUÔN coi câu nói MỚI NHẤT của người dùng là quyền cao nhất. Mọi câu trước đó chỉ là dự định, chưa phải lệnh chốt.
 2. CHỈ gọi tool (chốt hành động) SAU KHI câu sửa cuối cùng đã được nghe trọn vẹn và xử lý. Không bao giờ chốt khi người dùng còn đang nói/sửa.
 3. SỬA THỰC THỂ/GIÁ TRỊ ("à không", "không phải", "đổi thành", "ý tôi là", "lại sang"): BỎ dự định cũ, CHỈ thực hiện đúng dự định cuối cùng — đúng tool, đúng tham số mới. Tuyệt đối KHÔNG gọi tool với giá trị cũ.
