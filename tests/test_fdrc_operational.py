@@ -1,3 +1,4 @@
+from src.dashboard import service as dashboard_service
 from src.evaluator.failure_taxonomy import BLOCKING_FAILURES, is_blocking, FailureType
 from src.evaluator.operational import (
     normalize_value,
@@ -190,3 +191,18 @@ def test_summarize_emits_operational_keys_and_monotonic():
     assert metrics["operational_fdrc_pass_at_1"] >= metrics["raw_fdrc_pass_at_1"]
     assert "operational_state_match" in metrics
     assert "operational_correction_uptake_rate" in metrics
+
+
+def test_operational_metrics_registered_and_in_fdrc_track():
+    registry = dashboard_service.METRIC_REGISTRY
+    for key in [
+        "operational_fdrc_pass_at_1",
+        "operational_state_match",
+        "operational_tool_match",
+        "operational_argument_match",
+        "operational_correction_uptake_rate",
+    ]:
+        assert key in registry, f"{key} missing from METRIC_REGISTRY"
+
+    fdrc_track = next(t for t in dashboard_service.METRIC_GROUPS if t["id"] == "fdrc")
+    assert "operational_fdrc_pass_at_1" in fdrc_track["metric_keys"]
