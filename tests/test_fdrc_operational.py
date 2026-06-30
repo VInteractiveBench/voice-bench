@@ -1,3 +1,8 @@
+import json
+from pathlib import Path
+
+import pytest
+
 from src.dashboard import service as dashboard_service
 from src.evaluator.failure_taxonomy import BLOCKING_FAILURES, is_blocking, FailureType
 from src.evaluator.operational import (
@@ -206,3 +211,41 @@ def test_operational_metrics_registered_and_in_fdrc_track():
 
     fdrc_track = next(t for t in dashboard_service.METRIC_GROUPS if t["id"] == "fdrc")
     assert "operational_fdrc_pass_at_1" in fdrc_track["metric_keys"]
+
+
+RESULTS = Path(__file__).resolve().parents[1] / "results"
+RUN_DIRS = [
+    "fdrc_openai_script",
+    "fdrc_gemini_script",
+    "fdrc_openai_sim",
+    "fdrc_gemini_sim",
+]
+
+
+def _load_episodes(run: str):
+    path = RESULTS / run / "episodes.jsonl"
+    if not path.exists():
+        pytest.skip(f"run {run} not present")
+    return [json.loads(line) for line in path.open(encoding="utf-8") if line.strip()]
+
+
+@pytest.mark.parametrize("run", RUN_DIRS)
+def test_operational_at_least_strict_on_real_runs(run):
+    from src.dashboard.service import _evaluation_view, FDRC_TRACK
+    from src.evaluator.fdrc_evaluator import summarize_fdrc
+
+    rows = _evaluation_view(_load_episodes(run))
+    fdrc_rows = [r for r in rows if r.get("benchmark_track") == FDRC_TRACK]
+
+    for row in fdrc_rows:
+        scores = row.get("scores", {})
+        op = scores.get("operational_final_pass")
+        strict = scores.get("final_pass")
+        if op is not None and strict is not None:
+            assert op >= strict, f"{run}: operational < strict for {row.get('episode_id')}"
+
+    metrics = summarize_fdrc(fdrc_rows)
+    op_rate = metrics.get("operational_fdrc_pass_at_1")
+    raw_rate = metrics.get("raw_fdrc_pass_at_1")
+    if op_rate is not None and raw_rate is not None:
+        assert op_rate >= raw_rate, f"{run}: operational {op_rate} < raw {raw_rate}"
