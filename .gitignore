@@ -184,5 +184,6 @@ cython_debug/
 .pypirc
 
 /results/*
+/archive_runs/
 /docs/*
 !/docs/dashboard_ket_qua_hien_tai.md
