@@ -10,9 +10,6 @@ FDRC_REQUIRED_METRICS = [
     "partial_episode_count",
     "fdrc_pass_at_1",
     "pass_at_1",
-    "yield_latency_p50_ms",
-    "yield_latency_p95_ms",
-    "yield_latency_pass_rate",
     "policy_violation_rate",
     "state_match",
     "tool_validation_error_rate",
@@ -23,6 +20,9 @@ FDRC_REQUIRED_METRICS = [
 
 FDRC_NULLABLE_METRICS = {
     "cancel_success_rate": "no_cancel_cases",
+    "yield_latency_p50_ms": "no_applicable_yield_cases",
+    "yield_latency_p95_ms": "no_applicable_yield_cases",
+    "yield_latency_pass_rate": "no_applicable_yield_cases",
 }
 
 
@@ -49,9 +49,11 @@ def _score_rate(rows: list[dict[str, Any]], score_key: str) -> float | None:
 
 def _cancel_respected(episode: dict[str, Any]) -> bool:
     repair = episode.get("repair", {})
+    if episode.get("tool_calls") or repair.get("cancel_attempted_tool_call"):
+        return False
     if "cancel_respected" in repair:
         return bool(repair.get("cancel_respected"))
-    return not bool(repair.get("forbidden_tool_called")) and not bool(episode.get("tool_calls"))
+    return not bool(repair.get("forbidden_tool_called"))
 
 
 def _percentile(values: list[int | float], percentile: float) -> float | None:
@@ -77,11 +79,15 @@ def summarize_fdrc_contract(episodes: list[dict[str, Any]]) -> dict[str, Any]:
     ]
     completed_rows = [episode for episode in rows if _completed(episode)]
     partial_rows = [episode for episode in rows if not _completed(episode)]
+    applicable_rows = [
+        episode for episode in rows
+        if episode.get("latency", {}).get("yield_applicable")
+    ]
     latency_values = [
         value
         for value in (
             _safe_number(episode.get("latency", {}).get("yield_latency_ms"))
-            for episode in rows
+            for episode in applicable_rows
         )
         if value is not None
     ]
@@ -98,9 +104,11 @@ def summarize_fdrc_contract(episodes: list[dict[str, Any]]) -> dict[str, Any]:
         "yield_latency_p50_ms": median(latency_values) if latency_values else None,
         "yield_latency_p95_ms": _percentile(latency_values, 0.95),
         "yield_latency_pass_rate": _rate(
-            completed_rows,
+            applicable_rows,
             lambda episode: "YIELD_LATENCY_TOO_HIGH" not in _failure_values(episode),
         ),
+        "yield_applicable_count": len(applicable_rows),
+        "yield_applicable_rate": _rate(rows, lambda e: bool(e.get("latency", {}).get("yield_applicable"))),
         "policy_violation_rate": _rate(
             completed_rows,
             lambda episode: "POLICY_VIOLATION" in _failure_values(episode),
@@ -135,7 +143,9 @@ def summarize_fdrc_contract(episodes: list[dict[str, Any]]) -> dict[str, Any]:
         "pass_at_1": len(completed_rows),
         "yield_latency_p50_ms": len(rows),
         "yield_latency_p95_ms": len(rows),
-        "yield_latency_pass_rate": len(completed_rows),
+        "yield_latency_pass_rate": len(rows),
+        "yield_applicable_count": len(rows),
+        "yield_applicable_rate": len(rows),
         "policy_violation_rate": len(completed_rows),
         "state_match": len(completed_rows),
         "tool_validation_error_rate": len(completed_rows),

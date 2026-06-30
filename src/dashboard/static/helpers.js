@@ -109,7 +109,10 @@
     "response_honesty_rate", "tool_argument_accuracy",
     "old_intent_suppression_rate", "correction_uptake_rate", "cancel_success_rate",
     "yield_latency_pass_rate", "performance_yield_latency_pass_rate",
-    "fdrc_validity_rate",
+    // NOTE: fdrc_validity_rate is intentionally NOT here. It is a data-quality gate
+    // (are episodes well-formed enough to score?), not a performance score. Coloring it
+    // green at ≥90% made a run where the agent failed every episode look "good". Keep it
+    // neutral so it can't be misread as achievement; see _metric_result_comment.
   ]);
   // Rate metrics where HIGHER is worse (high value = bad → red).
   const BAD_HIGH_METRICS = new Set([
@@ -234,8 +237,18 @@
 
   // ---- timeline geometry ------------------------------------------
   // Bucket a raw voice/timeline event into a marker class + lane key.
-  function classifyEvent(name) {
-    const n = String(name || "");
+  function classifyEvent(input) {
+    const event = input && typeof input === "object" ? input : { event: input };
+    const n = String(event.event || "");
+    if (event.kind || event.lane) {
+      const lane = event.lane || "system";
+      if (event.kind === "marker") return { lane, cls: "expected" };
+      if (n === "tool_call") return { lane, cls: "tool" };
+      if (/interrupt/.test(n)) return { lane, cls: "interrupt" };
+      if (/yield/.test(n) && !/should_yield/.test(n)) return { lane, cls: "yield" };
+      if (event.kind === "derived") return { lane, cls: "derived" };
+      return { lane, cls: "observed" };
+    }
     if (n === "tool_call") return { lane: "tool", cls: "tool" };
     if (/interrupt/.test(n)) return { lane: "events", cls: "interrupt" };
     if (/yield/.test(n) && !/should_yield/.test(n)) return { lane: "events", cls: "yield" };
@@ -333,13 +346,14 @@
 
   // ---- hash routing ----------------------------------------------
   // Parse "#fdrc/runs/:id/episodes/:eid" into a structured route.
-  const KNOWN_TABS = new Set(["fdrc", "policy"]);
+  const KNOWN_TABS = new Set(["fdrc", "policy", "compare"]);
 
   function parseRoute(hash) {
     const raw = String(hash || "").replace(/^#\/?/, "");
     const parts = raw.split("/").filter(Boolean);
     if (parts.length === 0) return { tab: "fdrc", view: "overview" };
     const tab = KNOWN_TABS.has(parts[0]) ? parts[0] : "fdrc";
+    if (tab === "compare") return { tab, view: "compare" };
     if (parts[1] === "runs" && parts[2]) {
       const runId = decodeURIComponent(parts[2]);
       if (parts[3] === "episodes" && parts[4]) {

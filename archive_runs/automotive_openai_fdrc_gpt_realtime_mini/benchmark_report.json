@@ -1,0 +1,267 @@
+{
+  "run_id": "automotive_openai_fdrc_gpt_realtime_mini",
+  "benchmark_track": "full_duplex_repair_to_commit",
+  "metrics": {
+    "episode_count": 8,
+    "completed_episode_count": 8,
+    "partial_episode_count": 0,
+    "fdrc_pass_at_1": 0.0,
+    "pass_at_1": 0.0,
+    "yield_latency_p50_ms": 2548.0,
+    "yield_latency_p95_ms": 3401.0,
+    "yield_latency_pass_rate": 0.125,
+    "policy_violation_rate": 0.375,
+    "state_match": 0.0,
+    "tool_validation_error_rate": 0.375,
+    "old_intent_suppression_rate": 0.875,
+    "forbidden_tool_call_rate": 0.125,
+    "correction_uptake_rate": 0.0,
+    "cancel_success_rate": null,
+    "metric_contract": {
+      "benchmark_track": "full_duplex_repair_to_commit",
+      "required_metrics": [
+        "episode_count",
+        "completed_episode_count",
+        "partial_episode_count",
+        "fdrc_pass_at_1",
+        "pass_at_1",
+        "yield_latency_p50_ms",
+        "yield_latency_p95_ms",
+        "yield_latency_pass_rate",
+        "policy_violation_rate",
+        "state_match",
+        "tool_validation_error_rate",
+        "old_intent_suppression_rate",
+        "forbidden_tool_call_rate",
+        "correction_uptake_rate"
+      ],
+      "nullable_metrics": {
+        "cancel_success_rate": "no_cancel_cases"
+      },
+      "denominators": {
+        "episode_count": 1,
+        "completed_episode_count": 8,
+        "partial_episode_count": 8,
+        "fdrc_pass_at_1": 8,
+        "pass_at_1": 8,
+        "yield_latency_p50_ms": 8,
+        "yield_latency_p95_ms": 8,
+        "yield_latency_pass_rate": 8,
+        "policy_violation_rate": 8,
+        "state_match": 8,
+        "tool_validation_error_rate": 8,
+        "old_intent_suppression_rate": 8,
+        "forbidden_tool_call_rate": 8,
+        "correction_uptake_rate": 8,
+        "cancel_success_rate": 0
+      },
+      "null_reasons": {
+        "cancel_success_rate": {
+          "null_reason": "no_cancel_cases",
+          "denominator": 0
+        }
+      },
+      "violations": [],
+      "benchmark_status": "failed_evaluated"
+    }
+  },
+  "failure_counts": [
+    {
+      "failure_type": "FINAL_STATE_MISMATCH",
+      "count": 8
+    },
+    {
+      "failure_type": "CORRECTION_NOT_UPTAKEN",
+      "count": 8
+    },
+    {
+      "failure_type": "TOOL_SELECTION_ERROR",
+      "count": 7
+    },
+    {
+      "failure_type": "YIELD_LATENCY_TOO_HIGH",
+      "count": 7
+    },
+    {
+      "failure_type": "TOOL_ARGUMENT_ERROR",
+      "count": 4
+    },
+    {
+      "failure_type": "VALIDATION_ERROR",
+      "count": 3
+    },
+    {
+      "failure_type": "FABRICATED_SUCCESS",
+      "count": 3
+    },
+    {
+      "failure_type": "POLICY_VIOLATION",
+      "count": 3
+    },
+    {
+      "failure_type": "MISSING_OBSERVED_EVENT",
+      "count": 2
+    },
+    {
+      "failure_type": "FORBIDDEN_TOOL_CALL",
+      "count": 1
+    },
+    {
+      "failure_type": "OLD_INTENT_COMMITTED",
+      "count": 1
+    }
+  ],
+  "episodes": [
+    {
+      "episode_id": "fdrc_vehicle_001:full_duplex_repair_to_commit:vi_north_normal:openai_realtime:gpt-realtime-mini",
+      "completed": true,
+      "observed_events_ok": false,
+      "yield_ms": 2617,
+      "final_state_match": false,
+      "correction_uptake": false,
+      "old_intent_suppression": true,
+      "forbidden_tool_call": false,
+      "validation_error": false,
+      "fail_reasons": [
+        "TOOL_SELECTION_ERROR",
+        "FINAL_STATE_MISMATCH",
+        "CORRECTION_NOT_UPTAKEN",
+        "YIELD_LATENCY_TOO_HIGH",
+        "MISSING_OBSERVED_EVENT"
+      ]
+    },
+    {
+      "episode_id": "fdrc_vehicle_002:full_duplex_repair_to_commit:vi_north_normal:openai_realtime:gpt-realtime-mini",
+      "completed": true,
+      "observed_events_ok": true,
+      "yield_ms": 47,
+      "final_state_match": false,
+      "correction_uptake": false,
+      "old_intent_suppression": true,
+      "forbidden_tool_call": false,
+      "validation_error": true,
+      "fail_reasons": [
+        "VALIDATION_ERROR",
+        "TOOL_SELECTION_ERROR",
+        "TOOL_ARGUMENT_ERROR",
+        "FINAL_STATE_MISMATCH",
+        "FABRICATED_SUCCESS",
+        "CORRECTION_NOT_UPTAKEN",
+        "POLICY_VIOLATION"
+      ]
+    },
+    {
+      "episode_id": "fdrc_vehicle_003:full_duplex_repair_to_commit:vi_north_normal:openai_realtime:gpt-realtime-mini",
+      "completed": true,
+      "observed_events_ok": true,
+      "yield_ms": 2858,
+      "final_state_match": false,
+      "correction_uptake": false,
+      "old_intent_suppression": true,
+      "forbidden_tool_call": false,
+      "validation_error": false,
+      "fail_reasons": [
+        "TOOL_SELECTION_ERROR",
+        "FINAL_STATE_MISMATCH",
+        "CORRECTION_NOT_UPTAKEN",
+        "YIELD_LATENCY_TOO_HIGH"
+      ]
+    },
+    {
+      "episode_id": "fdrc_vehicle_004:full_duplex_repair_to_commit:vi_north_normal:openai_realtime:gpt-realtime-mini",
+      "completed": true,
+      "observed_events_ok": true,
+      "yield_ms": 3216,
+      "final_state_match": false,
+      "correction_uptake": false,
+      "old_intent_suppression": true,
+      "forbidden_tool_call": false,
+      "validation_error": true,
+      "fail_reasons": [
+        "VALIDATION_ERROR",
+        "TOOL_SELECTION_ERROR",
+        "TOOL_ARGUMENT_ERROR",
+        "FINAL_STATE_MISMATCH",
+        "FABRICATED_SUCCESS",
+        "CORRECTION_NOT_UPTAKEN",
+        "YIELD_LATENCY_TOO_HIGH"
+      ]
+    },
+    {
+      "episode_id": "fdrc_vehicle_005:full_duplex_repair_to_commit:vi_north_normal:openai_realtime:gpt-realtime-mini",
+      "completed": true,
+      "observed_events_ok": true,
+      "yield_ms": 1018,
+      "final_state_match": false,
+      "correction_uptake": false,
+      "old_intent_suppression": true,
+      "forbidden_tool_call": false,
+      "validation_error": false,
+      "fail_reasons": [
+        "TOOL_SELECTION_ERROR",
+        "FINAL_STATE_MISMATCH",
+        "CORRECTION_NOT_UPTAKEN",
+        "YIELD_LATENCY_TOO_HIGH",
+        "POLICY_VIOLATION"
+      ]
+    },
+    {
+      "episode_id": "fdrc_vehicle_006:full_duplex_repair_to_commit:vi_north_normal:openai_realtime:gpt-realtime-mini",
+      "completed": true,
+      "observed_events_ok": false,
+      "yield_ms": 2175,
+      "final_state_match": false,
+      "correction_uptake": false,
+      "old_intent_suppression": true,
+      "forbidden_tool_call": false,
+      "validation_error": false,
+      "fail_reasons": [
+        "TOOL_SELECTION_ERROR",
+        "FINAL_STATE_MISMATCH",
+        "CORRECTION_NOT_UPTAKEN",
+        "YIELD_LATENCY_TOO_HIGH",
+        "MISSING_OBSERVED_EVENT"
+      ]
+    },
+    {
+      "episode_id": "fdrc_vehicle_007:full_duplex_repair_to_commit:vi_north_normal:openai_realtime:gpt-realtime-mini",
+      "completed": true,
+      "observed_events_ok": true,
+      "yield_ms": 3401,
+      "final_state_match": false,
+      "correction_uptake": false,
+      "old_intent_suppression": true,
+      "forbidden_tool_call": false,
+      "validation_error": true,
+      "fail_reasons": [
+        "VALIDATION_ERROR",
+        "TOOL_SELECTION_ERROR",
+        "TOOL_ARGUMENT_ERROR",
+        "FINAL_STATE_MISMATCH",
+        "FABRICATED_SUCCESS",
+        "CORRECTION_NOT_UPTAKEN",
+        "YIELD_LATENCY_TOO_HIGH"
+      ]
+    },
+    {
+      "episode_id": "fdrc_vehicle_008:full_duplex_repair_to_commit:vi_north_normal:openai_realtime:gpt-realtime-mini",
+      "completed": true,
+      "observed_events_ok": true,
+      "yield_ms": 2479,
+      "final_state_match": false,
+      "correction_uptake": false,
+      "old_intent_suppression": false,
+      "forbidden_tool_call": true,
+      "validation_error": false,
+      "fail_reasons": [
+        "TOOL_ARGUMENT_ERROR",
+        "FINAL_STATE_MISMATCH",
+        "FORBIDDEN_TOOL_CALL",
+        "OLD_INTENT_COMMITTED",
+        "CORRECTION_NOT_UPTAKEN",
+        "YIELD_LATENCY_TOO_HIGH",
+        "POLICY_VIOLATION"
+      ]
+    }
+  ]
+}

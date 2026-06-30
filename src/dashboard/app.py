@@ -19,6 +19,7 @@ class BenchmarkRunRequest(BaseModel):
     preset_id: str
     domains: str = "automotive,navigation,media_phone"
     personas: str = "vi_north_normal,vi_central_normal,vi_south_normal"
+    audio_conditions: str | None = None
     model: str | None = None
 
 
@@ -52,6 +53,7 @@ def create_app(results_dir: str = "results") -> FastAPI:
                 request.preset_id,
                 domains=request.domains,
                 personas=request.personas,
+                audio_conditions=request.audio_conditions,
                 model=request.model,
             )
         except ValueError as exc:
@@ -65,9 +67,21 @@ def create_app(results_dir: str = "results") -> FastAPI:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @app.get("/api/runs/{run_id}/summary")
-    def run_summary(run_id: str, track: str | None = None) -> dict[str, Any]:
+    def run_summary(
+        run_id: str,
+        track: str | None = None,
+        domain: str | None = None,
+        audio_condition_id: str | None = None,
+        difficulty: str | None = None,
+    ) -> dict[str, Any]:
         try:
-            return store.run_summary(run_id, track=track)
+            return store.run_summary(
+                run_id,
+                track=track,
+                domain=domain,
+                audio_condition_id=audio_condition_id,
+                difficulty=difficulty,
+            )
         except RunNotFound as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -76,6 +90,8 @@ def create_app(results_dir: str = "results") -> FastAPI:
         run_id: str,
         track: str | None = None,
         domain: str | None = None,
+        audio_condition_id: str | None = None,
+        difficulty: str | None = None,
         mode: str | None = None,
         failure: str | None = None,
         validity: str | None = None,
@@ -86,6 +102,8 @@ def create_app(results_dir: str = "results") -> FastAPI:
                 run_id,
                 track=track,
                 domain=domain,
+                audio_condition_id=audio_condition_id,
+                difficulty=difficulty,
                 mode=mode,
                 failure=failure,
                 validity=validity,

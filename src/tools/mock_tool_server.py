@@ -24,7 +24,7 @@ class MockToolServer:
         self.domain = domain
         self.task = task
         self.overlay = overlay or {}
-        self.db_path = Path("data") / "tau2" / "domains" / domain / "db.json"
+        self.db_path = Path("data") / "domains" / domain / "db.json"
         self.initial_state = deepcopy(task.get("initial_state", {}))
         self.state = self._load_state()
         self.tool_call_log: list[dict] = []
@@ -45,6 +45,15 @@ class MockToolServer:
         if t_ms is not None:
             call["t_ms"] = t_ms
         self.tool_call_log.append(call)
+        if self._cancel_forbids_tool_call():
+            errors.append({"tool": tool, "reason": "cancelled_intent_forbids_tool_call"})
+            result = {
+                "success": False,
+                "error": "cancelled_intent_forbids_tool_call",
+                "errors": errors,
+            }
+            self.tool_results.append(result)
+            return ToolExecutionResult(False, result, errors)
         if errors:
             result = {"success": False, "error": "validation_failed", "errors": errors}
             self.tool_results.append(result)
@@ -113,6 +122,12 @@ class MockToolServer:
         else:
             self.state["committed_intent"] = self.task.get("id")
 
+    def _cancel_forbids_tool_call(self) -> bool:
+        return (
+            self.overlay.get("benchmark_track") == "full_duplex_repair_to_commit"
+            and self.overlay.get("final_intent") == "cancel"
+        )
+
     def _record_fdrc_commit(self, tool: str, args: dict) -> None:
         committed_action = {
             "tool": tool,
@@ -175,18 +190,26 @@ class MockToolServer:
             and not any(result.get("success") is True for result in self.tool_results)
         ):
             self.state["committed_intent"] = "cancel"
-            self.state.setdefault(
-                "fdrc",
-                {
-                    "speech_overlay_id": self.overlay.get("speech_overlay_id"),
-                    "initial_intent": deepcopy(self.overlay.get("initial_intent")),
-                    "final_intent": "cancel",
-                    "commit_status": "cancelled",
-                    "committed_action": None,
-                    "old_intent_committed": False,
-                    "commit_after_repair": True,
-                },
-            )
+            attempted_tool_call = bool(self.tool_call_log)
+            self.state["fdrc"] = {
+                "speech_overlay_id": self.overlay.get("speech_overlay_id"),
+                "initial_intent": deepcopy(self.overlay.get("initial_intent")),
+                "final_intent": "cancel",
+                "commit_status": "cancel_violation" if attempted_tool_call else "cancelled",
+                "committed_action": None,
+                "old_intent_committed": any(
+                    self._matches_any(call, self.overlay.get("forbidden_tool_calls", []))
+                    for call in self.tool_call_log
+                ),
+                "commit_after_repair": not attempted_tool_call,
+                "cancel_attempted_tool_call": attempted_tool_call,
+                "cancel_tool_call_count": len(self.tool_call_log),
+                "cancel_blocked_tool_call_count": sum(
+                    1
+                    for result in self.tool_results
+                    if isinstance(result, dict) and result.get("success") is False
+                ),
+            }
         return deepcopy(self.state)
 
     def save_tool_log(self, path: str | Path) -> None:

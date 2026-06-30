@@ -24,6 +24,9 @@ Dự án tập trung vào hai benchmark:
 
 <img width="3349" height="1984" alt="mermaid-diagram-2026-06-26-120112" src="https://github.com/user-attachments/assets/cf8a4b22-6f4a-4e44-84f9-e881e2d5e6f9" />
 
+Full-Duplex: overview + tool/state + policy + fdrc + latency + contract.
+Policy Gating: overview + tool/state + policy + policy_gating (8 metric) + contract, kèm confusion matrix + state-pair view + episode explorer (72/72).
+
 Tài liệu chi tiết:
 
 - [Benchmark 1: Full-Duplex Repair-to-Commit](docs/benchmark_1_full_duplex_repair_to_commit.md)

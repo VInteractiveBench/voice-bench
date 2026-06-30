@@ -131,6 +131,26 @@ def validate_tool_call_contract(call: Any, path: str) -> list[ValidationIssue]:
     return issues
 
 
+def validate_tool_call_structure(call: Any, path: str) -> list[ValidationIssue]:
+    """Structural integrity of a LOGGED tool call (a dict with a string tool name,
+    an args object and an int timestamp). Unlike `validate_tool_call_contract`, it
+    does NOT check tool scope or argument schemas: a model emitting an out-of-scope
+    tool or a schema-invalid argument is a task failure scored elsewhere, not a
+    reason to invalidate the episode log."""
+    if not isinstance(call, dict):
+        return [_issue(path, "invalid_type", value=type(call).__name__)]
+    issues: list[ValidationIssue] = []
+    if not isinstance(call.get("tool"), str):
+        issues.append(_issue(f"{path}.tool", "required_string"))
+        return issues
+    if not isinstance(call.get("args"), dict):
+        issues.append(_issue(f"{path}.args", "required_object"))
+        return issues
+    if "t_ms" in call and not isinstance(call["t_ms"], int):
+        issues.append(_issue(f"{path}.t_ms", "invalid_type", value=type(call["t_ms"]).__name__))
+    return issues
+
+
 def validate_tool_matcher(call: Any, path: str) -> list[ValidationIssue]:
     """Validate a forbidden-tool matcher: tool in scope + args is a dict.
 
@@ -259,7 +279,9 @@ def validate_episode_log(episode: Any, overlay: dict, task: dict) -> list[Valida
         if field in episode and episode.get(field) != expected:
             issues.append(_issue(f"episode.{field}", "mismatch", value=episode.get(field)))
     for index, call in enumerate(episode.get("tool_calls", [])):
-        issues.extend(validate_tool_call_contract(call, f"episode.tool_calls[{index}]"))
+        # Episode tool calls are MODEL output: only their log structure gates validity.
+        # Bad arg values / out-of-scope tools are model failures scored elsewhere.
+        issues.extend(validate_tool_call_structure(call, f"episode.tool_calls[{index}]"))
     for index, result in enumerate(episode.get("tool_results", [])):
         if not isinstance(result, dict):
             issues.append(_issue(f"episode.tool_results[{index}]", "invalid_type", value=type(result).__name__))

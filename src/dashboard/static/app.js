@@ -258,7 +258,7 @@
 
     const statline = `<div class="statline">
       <div class="stat"><span class="k">Episodes</span><span class="v">${summary.episode_count ?? "—"}</span></div>
-      <div class="stat"><span class="k">Validity</span><span class="v">${
+      <div class="stat"><span class="k">Độ hợp lệ</span><span class="v">${
         vs.rate === null ? "—" : H.fmtPct(vs.rate)
       } <small>${vs.valid}/${vs.known || vs.total}</small></span></div>
       <div class="stat"><span class="k">Pass</span><span class="v" style="color:var(--pass)">${pf.passed}</span></div>
@@ -375,8 +375,77 @@
     return H.metricTone(m.key, m.value, m.unit);
   }
 
+  const METRIC_MEANING = {
+    pass_at_1: "Tỷ lệ episode đạt toàn bộ tiêu chí chính của benchmark.",
+    episode_count: "Tổng số episode trong run hoặc lát cắt hiện tại.",
+    completed_episode_count: "Số episode có đủ dữ liệu để evaluator chấm hoàn chỉnh.",
+    partial_episode_count: "Số episode thiếu dữ liệu hoặc lỗi nên chỉ nên dùng để chẩn đoán.",
+    tool_exact_match: "Agent có gọi đúng tool mà kịch bản yêu cầu hay không.",
+    argument_exact_match: "Agent có truyền đúng tham số quan trọng vào tool hay không.",
+    state_match: "Trạng thái cuối có khớp trạng thái kỳ vọng hay không.",
+    tool_validation_error_rate: "Tỷ lệ episode có lỗi schema, tham số tool hoặc kết quả tool.",
+    out_of_scope_tool_call_rate: "Tỷ lệ episode gọi tool ngoài phạm vi benchmark.",
+    hallucinated_tool_rate: "Tỷ lệ episode gọi tool không có trong whitelist.",
+    policy_violation_rate: "Tỷ lệ episode vi phạm policy hoặc ràng buộc an toàn/ngữ cảnh.",
+    policy_compliance_rate: "Agent có chọn đúng execute, clarify, refuse hoặc defer theo policy hay không.",
+    forbidden_tool_call_rate: "Mức độ agent gọi tool bị cấm trong tình huống nhạy cảm; càng thấp càng tốt.",
+    clarification_precision: "Trong các lần agent hỏi lại, tỷ lệ câu hỏi đúng và cần thiết.",
+    clarification_recall: "Trong các tình huống bắt buộc hỏi lại, tỷ lệ agent đã hỏi đúng.",
+    state_conditioned_decision_accuracy: "Agent có đổi quyết định đúng theo trạng thái xe khác nhau hay không.",
+    final_state_correctness: "Kết quả cuối cùng có đưa hệ thống về đúng trạng thái kỳ vọng hay không.",
+    response_honesty_rate: "Phản hồi của agent có trung thực với việc tool thật sự chạy hay bị chặn hay không.",
+    tool_argument_accuracy: "Từng tham số expected trong execute case có được truyền đúng giá trị hay không.",
+    raw_fdrc_pass_at_1: "Tỷ lệ đạt FDRC trên toàn bộ episode, kể cả episode thiếu bằng chứng.",
+    performance_fdrc_pass_at_1: "Tỷ lệ đạt FDRC chỉ trên episode đủ điều kiện báo cáo performance.",
+    fdrc_validity_rate: "Tỷ lệ episode FDRC có đủ evidence để chấm chính thức.",
+    valid_episode_count: "Số episode FDRC đủ điều kiện dùng cho performance chính thức.",
+    invalid_episode_count: "Số episode FDRC thiếu bằng chứng hoặc sai log.",
+    correction_uptake_rate: "Agent có tiếp nhận đúng lệnh sửa cuối cùng sau khi user chen ngang hay không.",
+    old_intent_suppression_rate: "Agent có chặn ý định cũ sau khi user sửa hoặc hủy hay không.",
+    cancel_success_rate: "Ca hủy chỉ pass khi agent không attempted tool call sau lệnh hủy.",
+    yield_latency_pass_rate: "Agent có nhường lời trong ngưỡng latency cho phép hay không.",
+    yield_latency_p50_ms: "Độ trễ nhường lời trung vị; một nửa episode thấp hơn hoặc bằng số này.",
+    yield_latency_p95_ms: "Độ trễ nhường lời phân vị 95; phản ánh tail latency khó chịu.",
+    metrics_hash_valid: "metrics.json có khớp tập episode đang xem hay không.",
+    parse_errors: "Số lỗi đọc JSON hoặc JSONL khi dashboard nạp dữ liệu.",
+  };
+  METRIC_MEANING.fdrc_pass_at_1 = METRIC_MEANING.raw_fdrc_pass_at_1;
+  METRIC_MEANING.performance_yield_latency_p50_ms = "P50 latency chỉ tính trên episode FDRC hợp lệ.";
+  METRIC_MEANING.performance_yield_latency_p95_ms = "P95 latency chỉ tính trên episode FDRC hợp lệ.";
+  METRIC_MEANING.performance_yield_latency_pass_rate = "Tỷ lệ nhường lời đạt ngưỡng chỉ tính trên episode FDRC hợp lệ.";
+  METRIC_MEANING["metric_contract.benchmark_status"] = "Trạng thái tổng thể của metric contract sau khi kiểm tra dữ liệu.";
+  METRIC_MEANING["metric_contract.violations"] = "Số vi phạm contract metric, thường là metric bắt buộc bị thiếu.";
+  METRIC_MEANING["metric_contract.null_reasons"] = "Số metric N/A có lý do hợp lệ.";
+
+  function metricMeaning(m) {
+    const key = String((m && m.key) || "");
+    const base = key.split(".")[0];
+    return (m && m.plain_meaning) || METRIC_MEANING[key] || METRIC_MEANING[base] || (m && m.description) || "";
+  }
+
+  function metricComment(m) {
+    if (m && m.result_comment) return m.result_comment;
+    const label = (m && (m.label || m.key)) || "Metric";
+    const v = m && m.value;
+    if (v === null || v === undefined || Number.isNaN(v)) {
+      return `${label}: chưa có đủ dữ liệu để kết luận (${H.nullReasonText(m && m.null_reason)}).`;
+    }
+    if (m && m.key === "metrics_hash_valid") {
+      return v ? "Artifact metrics khớp episode set đang xem." : "Artifact metrics không khớp episode set; cần ưu tiên số tính lại từ episode.";
+    }
+    const shown = H.fmtMetric(m);
+    const denom = m && m.denominator ? ` trên n=${m.denominator}` : "";
+    const tone = metricColorClass(m);
+    if (tone === "s-pass") return `${label} đạt ${shown}${denom}; kết quả tốt theo ngưỡng hiện tại.`;
+    if (tone === "s-warn") return `${label} đạt ${shown}${denom}; cần theo dõi và xem nhóm episode lỗi.`;
+    if (tone === "s-fail") return `${label} đạt ${shown}${denom}; đây là điểm yếu cần ưu tiên debug.`;
+    if (m && m.unit === "ms") return `${label} là ${shown}; latency càng thấp càng tốt cho trải nghiệm chen ngang.`;
+    return `${label} hiện là ${shown}${denom}; dùng evidence chi tiết để diễn giải trong ngữ cảnh run.`;
+  }
+
   function metricCard(m) {
     const isNull = m.value === null || m.value === undefined;
+    const comment = metricComment(m);
     let valHtml;
     if (isNull) {
       valHtml = `<div class="metric-value null">N/A</div><div class="metric-reason">${esc(H.nullReasonText(m.null_reason))}</div>`;
@@ -389,6 +458,8 @@
     return `<div class="metric ${metricColorClass(m)} metric-clickable" data-key="${esc(m.key)}" role="button" tabindex="0">
       <div class="metric-label">${esc(m.label || m.key)}</div>
       ${valHtml}
+      <div class="metric-meaning">${esc(metricMeaning(m))}</div>
+      <div class="metric-comment">${esc(comment)}</div>
       <div class="metric-foot"><span>${esc(m.group || "")}</span><span>${denom}</span></div>
     </div>`;
   }
@@ -420,6 +491,83 @@
     </tr>`;
   }
 
+  function explainFieldList(fields) {
+    const rows = (fields || []).map((f) =>
+      `<div class="modal-field"><dt>${esc(f.label)}</dt><dd>${esc(f.value)}</dd></div>`
+    ).join("");
+    return rows || `<div class="modal-field"><dt>evidence</dt><dd>—</dd></div>`;
+  }
+
+  function explainEvidenceRow(runId, ep) {
+    const persona = [ep.accent_region, ep.speech_speed].filter(Boolean).join("·") || "—";
+    return `<tr>
+      <td><a href="${H.buildHash({ tab: ACTIVE.tab, view: "episode", runId, episodeId: ep.episode_id })}">${esc(ep.episode_id)}</a></td>
+      <td>${esc(ep.domain || "—")}</td>
+      <td>${esc(persona)}</td>
+      <td><dl class="modal-fields">${explainFieldList(ep.fields)}</dl></td>
+    </tr>`;
+  }
+
+  function explainOutcomeTable(runId, rows, total, kind, sampleLimit) {
+    const label = kind === "success" ? "đã thành công" : "đã thất bại";
+    const empty = kind === "success"
+      ? "Không có episode nào thành công theo điều kiện metric này."
+      : "Không có episode nào thất bại theo điều kiện metric này.";
+    const capped = total > rows.length;
+    const heading = capped
+      ? `Tiêu biểu ${rows.length || sampleLimit || 10} mẫu ${label}`
+      : `${total} mẫu ${label}`;
+    const note = capped
+      ? `<p class="modal-note">${esc(heading)} trong tổng ${esc(total)} mẫu ${label}; mở Episode Explorer để xem đầy đủ.</p>`
+      : `<p class="modal-note">${esc(heading)}.</p>`;
+    if (!rows.length) {
+      return `<h4>${esc(heading)}</h4><p class="modal-note">${esc(empty)}</p>`;
+    }
+    return `<h4>${esc(heading)}</h4>
+      ${note}
+      <div class="modal-table-wrap"><table class="modal-table modal-evidence"><thead><tr><th>episode</th><th>domain</th><th>persona</th><th>evidence fields</th></tr></thead>
+        <tbody>${rows.map((ep) => explainEvidenceRow(runId, ep)).join("")}</tbody></table></div>`;
+  }
+
+  function explainLegacyOutcomeData(data) {
+    const explicitSuccessRows = Array.isArray(data.successful_episodes) ? data.successful_episodes : null;
+    const explicitFailedRows = Array.isArray(data.failed_episodes) ? data.failed_episodes : null;
+    const explicitSuccessCount = Number.isFinite(data.successful_episode_count) ? data.successful_episode_count : null;
+    const explicitFailedCount = Number.isFinite(data.failed_episode_count) ? data.failed_episode_count : null;
+    if (explicitSuccessRows && explicitFailedRows && explicitSuccessCount !== null && explicitFailedCount !== null) {
+      return {
+        successRows: explicitSuccessRows,
+        failedRows: explicitFailedRows,
+        successCount: explicitSuccessCount,
+        failedCount: explicitFailedCount,
+      };
+    }
+
+    const denominatorRows = Array.isArray(data.denominator_episodes) ? data.denominator_episodes : [];
+    const numeratorRows = Array.isArray(data.numerator_episodes) ? data.numerator_episodes : [];
+    const denominatorById = new Map(denominatorRows.map((ep) => [String(ep.episode_id), ep]));
+    const numeratorIds = new Set(numeratorRows.map((ep) => String(ep.episode_id)));
+    denominatorRows.forEach((ep) => {
+      if (ep.in_numerator === true) numeratorIds.add(String(ep.episode_id));
+    });
+    const enrichedNumeratorRows = numeratorRows.map((ep) => denominatorById.get(String(ep.episode_id)) || ep);
+    const denominatorNonNumeratorRows = denominatorRows.filter((ep) => !numeratorIds.has(String(ep.episode_id)));
+    const denominatorNumeratorRows = denominatorRows.filter((ep) => numeratorIds.has(String(ep.episode_id)));
+    const numeratorSampleRows = denominatorNumeratorRows.length ? denominatorNumeratorRows : enrichedNumeratorRows;
+
+    const numerator = Number.isFinite(data.numerator) ? data.numerator : numeratorRows.length;
+    const denominator = Number.isFinite(data.denominator) ? data.denominator : denominatorRows.length;
+    const complement = Math.max(0, denominator - numerator);
+    const numeratorIsFailure = data.numerator_is_failure === true;
+
+    return {
+      successRows: explicitSuccessRows || (numeratorIsFailure ? denominatorNonNumeratorRows : numeratorSampleRows),
+      failedRows: explicitFailedRows || (numeratorIsFailure ? numeratorSampleRows : denominatorNonNumeratorRows),
+      successCount: explicitSuccessCount !== null ? explicitSuccessCount : (numeratorIsFailure ? complement : numerator),
+      failedCount: explicitFailedCount !== null ? explicitFailedCount : (numeratorIsFailure ? numerator : complement),
+    };
+  }
+
   function renderMetricModal(runId, data) {
     let bodyHtml;
     if (!data.supported) {
@@ -432,29 +580,63 @@
         : H.fmtPct(v);
       const headline = fmtVal(data.value);              // displayed value (matches the card)
       const recomputed = fmtVal(data.recomputed_value); // recomputed from episodes = num/denom
-      const eps = (data.numerator_episodes || []);
-      const epTable = eps.length
-        ? `<table class="modal-table"><thead><tr><th>episode</th><th>domain</th><th>persona</th><th>kết quả</th></tr></thead>
-            <tbody>${eps.map((ep) => explainEpisodeRow(runId, ep)).join("")}</tbody></table>`
-        : `<p class="modal-note">Tử số rỗng — không episode nào thỏa điều kiện.</p>`;
+      const outcomeData = explainLegacyOutcomeData(data);
+      const successRows = outcomeData.successRows || [];
+      const failedRows = outcomeData.failedRows || [];
+      const sampleLimit = data.episode_sample_limit || 10;
+      const successTable = explainOutcomeTable(
+        runId,
+        successRows,
+        outcomeData.successCount || 0,
+        "success",
+        sampleLimit
+      );
+      const failedTable = explainOutcomeTable(
+        runId,
+        failedRows,
+        outcomeData.failedCount || 0,
+        "failed",
+        sampleLimit
+      );
+      const calcHtml = data.calculation_vi
+        ? `<div class="modal-calc">
+            <span class="modal-calc-num">${esc(headline)}</span>
+            <span class="modal-calc-eq">=</span>
+            <span class="modal-calc-lbl">${esc(data.calculation_vi)}</span>
+          </div>`
+        : `<div class="modal-calc">
+            <span class="modal-calc-num">${esc(headline)}</span>
+            <span class="modal-calc-eq">=</span>
+            <span class="modal-calc-ratio">${esc(ratio)}</span>
+            <span class="modal-calc-lbl">(${esc(data.numerator_label_vi)} ÷ ${esc(data.row_set_label_vi)})</span>
+          </div>`;
+      const checks = (data.evaluation_checks || []).length
+        ? `<div class="modal-checks">${data.evaluation_checks.map((x) => `<code>${esc(x)}</code>`).join("")}</div>`
+        : `<p class="modal-note">Evaluator không khai báo field kiểm tra chi tiết cho metric này.</p>`;
       const explorerLink = data.explorer_filter
         ? `<a class="btn btn-ghost" id="modal-explorer" href="${H.buildHash({ tab: ACTIVE.tab, view: "episodes", runId })}">Mở Episode Explorer →</a>`
         : "";
-      const divergeWarn = data.value_matches_recomputed === false
-        ? `<div class="modal-diverge">⚠ Giá trị hiển thị (${esc(headline)}, từ ${esc(data.metric_source)}) KHÁC giá trị tính lại từ episode (${esc(recomputed)} = ${esc(ratio)}). Cần kiểm tra metrics.json.</div>`
+      const metricsJsonValue = fmtVal(data.metrics_json_value);
+      const divergeWarn = data.metrics_json_matches_recomputed === false
+        ? `<div class="modal-diverge">metrics.json (${esc(metricsJsonValue)}) khác giá trị evaluator hiện tại (${esc(recomputed)} = ${esc(ratio)}). Headline đang dùng giá trị tính lại từ episode.</div>`
         : "";
       bodyHtml = `
         <div class="modal-formula"><code>${esc(data.formula_vi)}</code></div>
-        <div class="modal-calc">
-          <span class="modal-calc-num">${esc(headline)}</span>
-          <span class="modal-calc-eq">=</span>
-          <span class="modal-calc-ratio">${esc(ratio)}</span>
-          <span class="modal-calc-lbl">(${esc(data.numerator_label_vi)} ÷ ${esc(data.row_set_label_vi)})</span>
-        </div>
+        ${calcHtml}
         ${divergeWarn}
+        <div class="modal-rulegrid modal-meaning">
+          <div><b>Ý nghĩa dễ hiểu</b><span>${esc(metricMeaning(data))}</span></div>
+          <div><b>Nhận xét kết quả</b><span>${esc(metricComment(data))}</span></div>
+        </div>
         <div class="modal-src">nguồn: ${esc(data.metric_source)} · hash ${data.metrics_hash_valid ? "khớp" : "KHÔNG khớp"} · scope: ${esc(data.scope)} · tính lại: ${esc(recomputed)}</div>
-        <h4>Episode tử số (${eps.length})</h4>
-        ${epTable}
+        <div class="modal-rulegrid">
+          <div><b>Mẫu số</b><span>${esc(data.denominator_condition_vi || data.row_set_label_vi)}</span></div>
+          <div><b>Tử số</b><span>${esc(data.pass_condition_vi || data.numerator_label_vi)}</span></div>
+        </div>
+        <h4>Evaluator đã kiểm tra</h4>
+        ${checks}
+        ${successTable}
+        ${failedTable}
         ${explorerLink}`;
     }
     return `<div class="modal-backdrop" id="metric-modal">
@@ -564,10 +746,10 @@
     { key: "episode_id", label: "Episode", cls: "" },
     { key: "domain", label: "Domain", cls: "" },
     { key: "persona", label: "Persona", cls: "" },
-    { key: "fdrc_valid", label: "Validity", cls: "" },
-    { key: "passed", label: "Result", cls: "" },
-    { key: "yield_latency_ms", label: "Yield ms", cls: "cell-num" },
-    { key: "primary_failure_type", label: "Primary failure", cls: "" },
+    { key: "fdrc_valid", label: "Hợp lệ", cls: "" },
+    { key: "passed", label: "Kết quả", cls: "" },
+    { key: "yield_latency_ms", label: "Nhường lời", cls: "cell-num" },
+    { key: "primary_failure_type", label: "Lỗi chính", cls: "" },
   ];
 
   async function refreshEpisodeTable(runId) {
@@ -712,27 +894,29 @@
         <dt>forbidden tool</dt><dd>${esc(summarizeCalls(contract.forbidden_tool_calls))}</dd>
       </dl></div>`;
 
-    const verdictPanel = `<div class="panel"><h3>Verdict</h3>
-      ${assertRow(validity.valid !== false, `validity: ${esc(validity.status || (validity.valid ? "VALID" : "INVALID"))}`, validity.valid === undefined)}
-      ${assertRow(scores.task_pass === 1, "task pass", scores.task_pass == null)}
-      ${assertRow(scores.policy_pass === 1, "policy pass", scores.policy_pass == null)}
-      ${assertRow(scores.voice_pass === 1, "voice pass", scores.voice_pass == null)}
-      ${assertRow(scores.final_pass === 1, "final pass", scores.final_pass == null)}
+    const verdictPanel = `<div class="panel"><h3>Kết luận</h3>
+      ${assertRow(validity.valid !== false, `độ hợp lệ: ${esc(validity.status || (validity.valid ? "VALID" : "INVALID"))}`, validity.valid === undefined)}
+      ${assertRow(scores.task_pass === 1, "đạt task", scores.task_pass == null)}
+      ${assertRow(scores.policy_pass === 1, "đạt policy", scores.policy_pass == null)}
+      ${assertRow(scores.voice_pass === 1, "đạt voice", scores.voice_pass == null)}
+      ${assertRow(scores.final_pass === 1, "đạt cuối cùng", scores.final_pass == null)}
       <div class="assert ${yl == null ? "na" : yl <= 1000 ? "ok" : "bad"}">
         <span class="mark">${yl == null ? "·" : "◷"}</span>
-        <span class="txt">yield latency: ${yl == null ? "—" : H.fmtMs(yl)}</span>
+        <span class="txt">độ trễ nhường lời: ${yl == null ? "—" : H.fmtMs(yl)}</span>
       </div>
     </div>`;
 
     const timeline = renderTimeline(d.timeline || [], { yieldLatency: yl });
+    const transcriptPanel = renderTranscript(d);
 
-    const repairPanel = `<div class="panel"><h3>Repair / Commit Safety</h3>
-      ${assertRow(repair.assistant_speaking_before_interrupt !== false, "assistant speaking before interrupt", repair.assistant_speaking_before_interrupt == null)}
-      ${assertRow(repair.correction_uptaken === true, "correction uptaken", repair.correction_uptaken == null)}
-      ${assertRow(repair.old_intent_committed === false, "old intent NOT committed", repair.old_intent_committed == null)}
-      ${assertRow(repair.forbidden_tool_called === false, "forbidden tool NOT called", repair.forbidden_tool_called == null)}
-      ${assertRow(repair.duplicate_final_commit === false, "no duplicate final commit", repair.duplicate_final_commit == null)}
-      ${assertRow(!H.earlyCommit(d.timeline || []), "no early commit (before gate)", false)}
+    const repairPanel = `<div class="panel"><h3>An toàn sửa lệnh</h3>
+      ${assertRow(repair.assistant_speaking_before_interrupt !== false, "assistant đang nói trước khi bị ngắt", repair.assistant_speaking_before_interrupt == null)}
+      ${assertRow(repair.correction_uptaken === true, "đã tiếp nhận lệnh sửa", repair.correction_uptaken == null)}
+      ${assertRow(repair.old_intent_committed === false, "không thực thi lệnh cũ", repair.old_intent_committed == null)}
+      ${assertRow(repair.forbidden_tool_called === false, "không gọi tool cấm", repair.forbidden_tool_called == null)}
+      ${repair.final_intent === "cancel" || repair.cancel_respected != null ? assertRow(repair.cancel_respected === true, "hủy lệnh được tôn trọng", repair.cancel_respected == null) : ""}
+      ${assertRow(repair.duplicate_final_commit === false, "không commit cuối trùng lặp", repair.duplicate_final_commit == null)}
+      ${assertRow(!H.earlyCommit(d.timeline || []), "không commit sớm trước cổng cho phép", false)}
     </div>`;
 
     const diffPanel = renderToolStateDiff(d);
@@ -749,6 +933,7 @@
       `<button class="crumb" id="back-eps3">← Episodes</button>` +
       header +
       `<div class="two-col">${verdictPanel}${repairPanel}</div>` +
+      transcriptPanel +
       timeline +
       `<div class="two-col">${contractPanel}${diffPanel}</div>` +
       failurePanel +
@@ -788,7 +973,9 @@
     const warnings = [];
     if (repair.old_intent_committed) warnings.push("OLD_INTENT_COMMITTED");
     if (repair.forbidden_tool_called) warnings.push("FORBIDDEN_TOOL_CALL");
-    if (repair.correction_uptaken === false) warnings.push("CORRECTION_NOT_UPTAKEN");
+    if (repair.cancel_respected === false || repair.cancel_attempted_tool_call) warnings.push("CANCEL_NOT_RESPECTED");
+    if (repair.repair_intent_mismatch) warnings.push("REPAIR_INTENT_MISMATCH");
+    if (repair.correction_uptaken === false && !repair.repair_intent_mismatch) warnings.push("CORRECTION_NOT_UPTAKEN");
     if (stateDiff.matches === false) warnings.push("FINAL_STATE_MISMATCH");
 
     const warnHtml = warnings.length
@@ -814,6 +1001,52 @@
     </div>`;
   }
 
+  // ---- Conversation transcript -----------------------------------
+  function renderTranscript(d) {
+    const tr = (d && d.transcript) || {};
+    const userTurns = Array.isArray(tr.user) ? tr.user.filter(Boolean) : [];
+    // Prefer the grouped assistant_response events (one clean entry per spoken
+    // turn, with a timestamp); fall back to the raw fragment transcript.
+    const respEvents = (d.timeline || []).filter((e) => e.event === "assistant_response" && e.text);
+    let asstTurns;
+    if (respEvents.length) {
+      asstTurns = respEvents
+        .slice()
+        .sort((a, b) => a.t_ms - b.t_ms)
+        .map((e) => ({ t_ms: e.t_ms, text: e.text }));
+    } else {
+      const joined = (Array.isArray(tr.assistant) ? tr.assistant.join("") : "").trim();
+      asstTurns = joined ? [{ t_ms: null, text: joined }] : [];
+    }
+    if (!userTurns.length && !asstTurns.length) return "";
+    const rows = [];
+    const n = Math.max(userTurns.length, asstTurns.length);
+    for (let i = 0; i < n; i++) {
+      if (userTurns[i] !== undefined) rows.push({ role: "user", text: userTurns[i] });
+      if (asstTurns[i] !== undefined)
+        rows.push({ role: "assistant", t_ms: asstTurns[i].t_ms, text: asstTurns[i].text });
+    }
+    const bubbles = rows
+      .map(
+        (r) => `<div class="chat-row ${r.role}">
+          <div class="chat-role">${r.role === "user" ? "User" : "Vivi"}${
+          r.t_ms != null ? " · " + esc(H.fmtMs(r.t_ms)) : ""
+        }</div>
+          <div class="chat-bubble">${esc(r.text)}</div>
+        </div>`
+      )
+      .join("");
+    let note = "";
+    if (!asstTurns.length && userTurns.length) {
+      note = `<div class="chat-note">Episode log không lưu transcript phản hồi của agent cho run này.</div>`;
+    } else if (!respEvents.length && asstTurns.length) {
+      note = `<div class="chat-note">Phản hồi reference/synthetic — không phải agent realtime thật.</div>`;
+    }
+    return `<div class="panel transcript-panel">
+      <div class="section-head"><h2>Hội thoại (User ↔ Vivi)</h2><span class="count">${rows.length} lượt</span></div>
+      ${note}<div class="chat">${bubbles}</div></div>`;
+  }
+
   // ---- SVG timeline ----------------------------------------------
   function renderTimeline(events, opts) {
     const evs = (events || []).filter((e) => typeof e.t_ms === "number");
@@ -825,17 +1058,18 @@
 
     const W = 1040, padL = 96, padR = 24, top = 30, laneH = 50;
     const lanes = [
-      { key: "user", label: "User" },
-      { key: "assistant", label: "Assistant" },
-      { key: "events", label: "Events" },
-      { key: "tool", label: "Tool / State" },
+      { key: "user", label: "Người dùng" },
+      { key: "assistant", label: "Trợ lý" },
+      { key: "marker", label: "Mốc đánh giá" },
+      { key: "tool", label: "Công cụ / Trạng thái" },
+      { key: "system", label: "Hệ thống" },
     ];
     const laneIndex = {}; lanes.forEach((l, i) => (laneIndex[l.key] = i));
     const innerH = lanes.length * laneH;
     const H_ = top + innerH + 26;
     const duration = H.timelineDuration(evs);
     const x = H.scaler(duration, padL, W - padR);
-    const laneY = (k) => top + laneIndex[k] * laneH;
+    const laneY = (k) => top + (laneIndex[k] ?? laneIndex.marker ?? 0) * laneH;
 
     let svg = `<svg class="tl-svg" viewBox="0 0 ${W} ${H_}" width="100%" preserveAspectRatio="xMinYMin meet" style="min-width:760px">`;
 
@@ -857,23 +1091,23 @@
     const rw = H.repairWindow(evs);
     if (rw) {
       svg += `<rect class="tl-repair" x="${x(rw.start)}" y="${top}" width="${Math.max(2, x(rw.end) - x(rw.start))}" height="${innerH}"/>`;
-      svg += `<text class="tl-axis-tick" x="${x(rw.start) + 4}" y="${top + 11}" fill="var(--warn)">repair window</text>`;
+      svg += `<text class="tl-axis-tick" x="${x(rw.start) + 4}" y="${top + 11}" fill="var(--warn)">cửa sổ sửa lệnh</text>`;
     }
 
     // yield bracket
     const interrupt = H.findEvent(evs, (e) => /interrupt/.test(e.event || ""));
     const yielded = H.findEvent(evs, (e) => /yield/.test(e.event || "") && !/should_yield/.test(e.event || ""));
     if (interrupt && yielded) {
-      const yy = laneY("events") + laneH - 8;
+      const yy = laneY("marker") + laneH - 8;
       svg += `<line class="tl-threshold" x1="${x(interrupt.t_ms)}" y1="${yy}" x2="${x(yielded.t_ms)}" y2="${yy}"/>`;
-      svg += `<text class="tl-axis-tick" x="${(x(interrupt.t_ms) + x(yielded.t_ms)) / 2}" y="${yy - 4}" text-anchor="middle" fill="var(--pass)">yield ${H.fmtMs(opts && opts.yieldLatency != null ? opts.yieldLatency : yielded.t_ms - interrupt.t_ms)}</text>`;
+      svg += `<text class="tl-axis-tick" x="${(x(interrupt.t_ms) + x(yielded.t_ms)) / 2}" y="${yy - 4}" text-anchor="middle" fill="var(--pass)">nhường lời ${H.fmtMs(opts && opts.yieldLatency != null ? opts.yieldLatency : yielded.t_ms - interrupt.t_ms)}</text>`;
     }
 
     const early = H.earlyCommit(evs);
 
     // markers
     evs.forEach((e) => {
-      const c = H.classifyEvent(e.event);
+      const c = H.classifyEvent(e);
       const ly = laneY(c.lane);
       const cx = x(e.t_ms);
       const isEarlyTool = c.cls === "tool" && early && (() => {
@@ -883,36 +1117,74 @@
       const cls = `tl-marker ${c.cls} ${e.source === "expected" ? "expected" : "observed"} ${isEarlyTool ? "early" : ""}`;
       const dotColor = {
         yield: "var(--pass)", interrupt: "var(--warn)", tool: isEarlyTool ? "var(--fail)" : "var(--mutate)",
-        expected: "var(--gray)", observed: "var(--observed)",
+        expected: "var(--gray)", observed: "var(--observed)", derived: "var(--faint)",
       }[c.cls] || "var(--observed)";
-      const tip = `${e.event || ""} @ ${e.t_ms}ms${e.source ? " · " + e.source : ""}`;
-      svg += `<g class="${cls}"><title>${esc(tip)}</title>`;
+      const note = timelineDetail(e);
+      const sources = timelineSources(e);
+      const tipLabel = `${timelineLabel(e.event)} @ ${e.t_ms}ms${sources ? " / " + sources : ""}${note ? " / " + note : ""}`;
+      svg += `<g class="${cls}"><title>${esc(tipLabel)}</title>`;
       svg += `<line x1="${cx}" y1="${ly + 12}" x2="${cx}" y2="${ly + laneH - 12}"/>`;
       svg += `<circle class="tl-dot" cx="${cx}" cy="${ly + laneH / 2}" r="4" fill="${dotColor}"/>`;
-      // event short label
-      svg += `<text class="tl-label" x="${cx + 6}" y="${ly + 14}">${esc(shortEvent(e.event))}</text>`;
-      // utterance / tool text
-      const note = e.text || (e.tool ? `${e.tool}(${argsText(e.args)})` : "");
-      if (note) {
-        svg += `<text class="tl-utt" x="${cx + 6}" y="${ly + laneH - 8}">${esc(truncate(note, 34))}</text>`;
-      }
       svg += `</g>`;
     });
 
     svg += `</svg>`;
 
     const legend = `<div class="legend">
-      <span><i style="border-color:var(--observed)"></i>observed</span>
-      <span><i style="border-color:var(--gray);border-top-style:dashed"></i>expected</span>
-      <span><i style="border-color:var(--warn)"></i>interrupt</span>
-      <span><i style="border-color:var(--pass)"></i>yield</span>
-      <span><i style="border-color:var(--mutate)"></i>tool</span>
-      <span><i style="border-color:var(--fail)"></i>early commit</span>
+      <span><i style="border-color:var(--observed)"></i>đã quan sát</span>
+      <span><i style="border-color:var(--gray);border-top-style:dashed"></i>dự kiến</span>
+      <span><i style="border-color:var(--warn)"></i>ngắt lời</span>
+      <span><i style="border-color:var(--pass)"></i>nhường lời</span>
+      <span><i style="border-color:var(--mutate)"></i>công cụ</span>
+      <span><i style="border-color:var(--fail)"></i>commit sớm</span>
     </div>`;
+    const eventList = renderTimelineEventList(evs);
 
     return `<div class="timeline-card">
-      <div class="section-head"><h2>Full-Duplex Timeline</h2><span class="count">${evs.length} events</span></div>
-      ${legend}${svg}</div>`;
+      <div class="section-head"><h2>Timeline song công</h2><span class="count">${evs.length} sự kiện</span></div>
+      ${legend}<div class="timeline-svg-wrap">${svg}</div>${eventList}</div>`;
+  }
+
+  function renderTimelineEventList(events) {
+    const laneLabels = {
+      user: "Người dùng",
+      assistant: "Trợ lý",
+      events: "Sự kiện",
+      marker: "Mốc",
+      tool: "Công cụ",
+      system: "Hệ thống",
+    };
+    const kindLabels = {
+      runtime: "runtime",
+      marker: "marker",
+      derived: "derived",
+    };
+    const rows = (events || [])
+      .slice()
+      .sort((a, b) => a.t_ms - b.t_ms)
+      .map((e) => {
+        const c = H.classifyEvent(e);
+        const note = timelineDetail(e);
+        const sources = timelineSources(e);
+        const isSpeechNote = Boolean(e.text);
+        const noteClass = isSpeechNote ? " tl-event-note-speech" : "";
+        return `<div class="tl-event-row tl-event-${esc(c.cls)}">
+          <div class="tl-event-kind">${esc(kindLabels[e.kind] || e.kind || c.cls)}</div>
+          <div class="tl-event-time">${esc(H.fmtMs(e.t_ms))}</div>
+          <div class="tl-event-lane">${esc(laneLabels[c.lane] || c.lane)}</div>
+          <div class="tl-event-name">${esc(timelineLabel(e.event))}</div>
+          <div class="tl-event-source">${esc(sources || "—")}</div>
+          <div class="tl-event-timestamp">${esc(e.timestamp_kind || "—")}</div>
+          <div class="tl-event-note${noteClass}">${esc(note || "—")}</div>
+        </div>`;
+      })
+      .join("");
+    return `<div class="tl-event-list">
+      <div class="tl-event-head">
+        <span>Loại</span><span>Thời điểm</span><span>Luồng</span><span>Sự kiện</span><span>Nguồn</span><span>Mốc thời gian</span><span>Chi tiết</span>
+      </div>
+      ${rows}
+    </div>`;
   }
 
   function shortEvent(name) {
@@ -920,7 +1192,184 @@
       .replace(/^assistant_/, "a_").replace(/^user_/, "u_")
       .replace(/_start$/, "").replace(/_ms$/, "");
   }
-  function truncate(s, n) { s = String(s); return s.length > n ? s.slice(0, n - 1) + "…" : s; }
+
+  function timelineLabel(name) {
+    const labels = {
+      assistant_speech_expected_start: "cửa sổ phát lời dự kiến",
+      assistant_should_yield_by: "hạn nhường lời dự kiến",
+      tool_commit_allowed_after: "cổng commit dự kiến",
+      user_interrupt_start: "người dùng ngắt lời",
+      repair_audio_start: "âm thanh sửa lệnh",
+      repair_transcript_done: "bản chép sửa lệnh",
+      assistant_yielded: "trợ lý đã nhường lời",
+      assistant_speech_start: "trợ lý bắt đầu nói",
+      assistant_speech_stop: "trợ lý dừng nói",
+      assistant_response: "phản hồi của trợ lý",
+      tool_call: "lệnh gọi công cụ",
+      tool_result: "kết quả công cụ",
+    };
+    return labels[name] || shortEvent(name);
+  }
+
+  function timelineSources(e) {
+    const labels = {
+      expected: "dự kiến",
+      observed: "đã quan sát",
+      normalized: "đã chuẩn hóa",
+      tool_calls: "tool_calls",
+    };
+    const label = (value) => labels[value] || value || "";
+    if (Array.isArray(e.sources) && e.sources.length) return e.sources.map(label).join(" + ");
+    return label(e.source);
+  }
+
+  function timelineDetail(e) {
+    if (e.text) return e.text;
+    if (e.tool) return `${e.tool}(${argsText(e.args)})`;
+    const details = {
+      assistant_speech_expected_start: "mốc lập lịch dự kiến, không phải hành động trợ lý đã thực hiện",
+      assistant_should_yield_by: "hạn cuối để nhường lời sau khi người dùng chen ngang",
+      tool_commit_allowed_after: "thời điểm sớm nhất được phép commit tác động phụ",
+      user_interrupt_start: "đã quan sát người dùng sửa lệnh trong lúc trợ lý đang nói",
+      repair_audio_start: "đã quan sát âm thanh sửa lệnh được phát",
+      repair_transcript_done: "bản chép lời sửa lệnh đã sẵn sàng",
+      assistant_yielded: "trợ lý đã dừng hoặc nhường lời sau khi bị ngắt",
+      assistant_speech_start: "đã quan sát âm thanh trợ lý bắt đầu",
+      assistant_speech_stop: "đã quan sát âm thanh trợ lý dừng",
+    };
+    return details[e.event] || "mốc vòng đời";
+  }
+
+  // ================================================================
+  // VIEW: Compare (run-vs-run on the Full-Duplex track)
+  // ================================================================
+  const COMPARE_TRACK = H.FDRC_TRACK;
+  const COMPARE_METRICS = [
+    { key: "fdrc_pass_at_1", label: "FDRC pass@1", unit: "rate" },
+    { key: "correction_uptake_rate", label: "Tiếp nhận sửa", unit: "rate" },
+    { key: "old_intent_suppression_rate", label: "Chặn ý định cũ", unit: "rate" },
+    { key: "forbidden_tool_call_rate", label: "Gọi tool cấm (thấp tốt)", unit: "rate" },
+    { key: "cancel_success_rate", label: "Cancel thành công", unit: "rate" },
+    { key: "state_match", label: "State match", unit: "rate" },
+    { key: "yield_latency_p50_ms", label: "Yield p50", unit: "ms" },
+    { key: "yield_latency_p95_ms", label: "Yield p95", unit: "ms" },
+    { key: "yield_latency_pass_rate", label: "Pass yield latency", unit: "rate" },
+    { key: "fdrc_validity_rate", label: "Validity", unit: "rate" },
+  ];
+  // Rate metrics where a LOWER value is better (negative delta is good).
+  const COMPARE_BAD_HIGH = new Set(["forbidden_tool_call_rate"]);
+
+  function compareModelFamily(run) {
+    const t = [...(run.models || []), ...(run.providers || []), ...(run.adapters || []), run.run_id]
+      .join(" ").toLowerCase();
+    if (/gemini|google|native[-_]?audio/.test(t)) return { id: "gemini", label: "Gemini" };
+    if (/openai|gpt/.test(t)) return { id: "openai", label: "OpenAI" };
+    return { id: "other", label: "Khác" };
+  }
+  function compareIsLive(run) { return /(_sim|simulator|live)/.test(String(run.run_id || "")); }
+
+  function compareMetricValue(summary, key) {
+    const m = summary && summary.metrics ? summary.metrics : {};
+    const v = m[key];
+    return typeof v === "number" && !Number.isNaN(v) ? v : null;
+  }
+  function fmtCompareValue(unit, v) {
+    if (v === null || v === undefined) return "—";
+    return unit === "ms" ? H.fmtMs(v) : H.fmtPct(v);
+  }
+  function fmtCompareDelta(unit, delta) {
+    if (delta === null || delta === undefined) return "";
+    if (unit === "ms") { const r = Math.round(delta); return (r > 0 ? "+" : "") + r + " ms"; }
+    const pp = delta * 100; return (pp > 0 ? "+" : "") + pp.toFixed(1) + " pp";
+  }
+  function compareDeltaClass(key, unit, delta) {
+    if (delta === null || delta === undefined || delta === 0) return "";
+    const lowerBetter = unit === "ms" || COMPARE_BAD_HIGH.has(key);
+    if (lowerBetter) return delta < 0 ? "s-pass" : "s-fail";
+    return delta > 0 ? "s-pass" : "s-fail";
+  }
+
+  async function loadWholeRunSummary(runId) {
+    const key = `compare-whole:${runId}`;
+    if (cache.summary[key]) return cache.summary[key];
+    const q = new URLSearchParams({ track: COMPARE_TRACK });
+    cache.summary[key] = await getJSON(`/api/runs/${encodeURIComponent(runId)}/summary?${q}`);
+    return cache.summary[key];
+  }
+
+  async function renderCompare() {
+    setStatus("compare", "loading runs…");
+    view.innerHTML = `<div class="skeleton"></div><div class="skeleton"></div>`;
+    let runs;
+    try {
+      const all = await getJSON("/api/runs");
+      runs = all.filter((r) => r.benchmark_track === COMPARE_TRACK);
+    } catch (e) {
+      view.innerHTML = stateBlock({ glyph: "⚠", title: "Không tải được /api/runs", body: esc(e.message), error: true });
+      return;
+    }
+    // Real model runs only: exclude reference/sample/internal and tiny smoke runs.
+    const cols = runs.filter((r) => r.run_kind === "benchmark" && (r.models && r.models.length) && (r.episode_count || 0) >= 40);
+    if (!cols.length) {
+      view.innerHTML = stateBlock({ glyph: "∅", title: "Chưa có FDRC model-run nào để so sánh", body: "Cần ít nhất 1 run thật (provider) với ≥ 40 episode." });
+      return;
+    }
+    const famOrder = { openai: 0, gemini: 1, other: 2 };
+    cols.forEach((r) => { r._fam = compareModelFamily(r); r._live = compareIsLive(r); });
+    cols.sort((a, b) =>
+      (famOrder[a._fam.id] - famOrder[b._fam.id]) ||
+      ((a._live ? 1 : 0) - (b._live ? 1 : 0)) ||
+      a.run_id.localeCompare(b.run_id)
+    );
+    const scriptedByFam = {};
+    cols.forEach((r) => { if (!r._live && scriptedByFam[r._fam.id] === undefined) scriptedByFam[r._fam.id] = r.run_id; });
+
+    view.innerHTML = `
+      <div class="section-head"><h2>So sánh run — Full-Duplex Repair-to-Commit</h2>
+        <span class="count">${cols.length} run · ${COMPARE_METRICS.length} metric</span></div>
+      <p class="modal-desc cmp-intro">Mỗi cột là một run thật (model + chế độ user). Δ ở cột <b>live</b> là chênh lệch so với run <b>scripted</b> cùng model. Số liệu là metric <b>toàn-run</b> (không tách theo domain).</p>
+      <div id="cmp-table"><div class="skeleton"></div></div>`;
+
+    const host = document.getElementById("cmp-table");
+    const summaries = {};
+    try {
+      await Promise.all(cols.map(async (r) => { summaries[r.run_id] = await loadWholeRunSummary(r.run_id); }));
+    } catch (e) {
+      host.innerHTML = stateBlock({ glyph: "⚠", title: "Không tải được summary", body: esc(e.message), error: true });
+      return;
+    }
+
+    const headCells = cols.map((r) => {
+      const modeChip = `<span class="chip ${r._live ? "" : "gray"}">${r._live ? "live" : "scripted"}</span>`;
+      return `<th><div class="cmp-model-name">${esc(r._fam.label)}</div>
+        <div class="cmp-run-name">${esc(r.run_id)}</div>
+        <div class="cmp-run-sub">${r.episode_count || 0} ep ${modeChip}</div></th>`;
+    }).join("");
+
+    const rowsHtml = COMPARE_METRICS.map((metric) => {
+      const cells = cols.map((r) => {
+        const v = compareMetricValue(summaries[r.run_id], metric.key);
+        const tone = H.metricTone(metric.key, v, metric.unit);
+        const valHtml = `<span class="cmp-val ${tone}">${esc(fmtCompareValue(metric.unit, v))}</span>`;
+        let dHtml = "";
+        if (r._live) {
+          const baseId = scriptedByFam[r._fam.id];
+          const bv = baseId ? compareMetricValue(summaries[baseId], metric.key) : null;
+          if (v !== null && bv !== null) {
+            const d = v - bv;
+            dHtml = `<span class="cmp-delta ${compareDeltaClass(metric.key, metric.unit, d)}">${esc(fmtCompareDelta(metric.unit, d))}</span>`;
+          }
+        }
+        return `<td>${valHtml}${dHtml}</td>`;
+      }).join("");
+      return `<tr><th class="cmp-metric">${esc(metric.label)}</th>${cells}</tr>`;
+    }).join("");
+
+    host.innerHTML = `<div class="table-wrap"><table class="episodes cmp-table">
+      <thead><tr><th class="cmp-metric-head">Metric</th>${headCells}</tr></thead>
+      <tbody>${rowsHtml}</tbody></table></div>`;
+    setStatus("compare", `${cols.length} run · ${COMPARE_METRICS.length} metric`);
+  }
 
   // ---- router -----------------------------------------------------
   let _route = { tab: "fdrc", view: "overview" };
@@ -937,6 +1386,7 @@
     _route = r;
     ACTIVE = TRACKS[r.tab] || TRACKS.fdrc;
     setActiveTab(r.tab);
+    if (r.tab === "compare") return renderCompare();
     if (r.view === "episode") return renderEpisodeDetail(r);
     if (r.view === "episodes") return renderEpisodes(r);
     return renderOverview(r);

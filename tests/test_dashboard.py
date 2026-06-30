@@ -1,4 +1,6 @@
 import json
+from copy import deepcopy
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -96,7 +98,7 @@ def sample_fdrc_episode(**overrides):
 def test_dashboard_store_lists_runs_and_preserves_null_metrics(tmp_path):
     run = tmp_path / "run_a"
     run.mkdir()
-    episodes = [sample_episode()]
+    episodes = [sample_episode(provider="openai", adapter="openai_realtime")]
     write_json(run / "metrics.json", metrics_with_metadata(episodes, {"pass_at_1": 1.0, "clarification_precision": None}))
     write_jsonl(run / "episodes.jsonl", episodes)
 
@@ -104,6 +106,8 @@ def test_dashboard_store_lists_runs_and_preserves_null_metrics(tmp_path):
     runs = store.list_runs()
     assert runs[0]["run_id"] == "run_a"
     assert runs[0]["episode_count"] == 1
+    assert runs[0]["providers"] == ["openai"]
+    assert runs[0]["adapters"] == ["openai_realtime"]
 
     summary = store.run_summary("run_a")
     assert summary["metrics"]["pass_at_1"] == 1.0
@@ -207,6 +211,188 @@ def test_dashboard_api_endpoints(tmp_path):
     assert detail.json()["timeline"][0]["event"] == "tool_call"
 
 
+def test_dashboard_timeline_exposes_assistant_response_text(tmp_path):
+    run = tmp_path / "assistant_response_run"
+    run.mkdir()
+    episode = sample_fdrc_episode(
+        normalized_events=[
+            {"type": "assistant_transcript_delta", "t_ms": 1500, "text": "Đang"},
+            {"type": "assistant_transcript_delta", "t_ms": 1520, "text": " chuyển"},
+            {"type": "assistant_transcript_delta", "t_ms": 1540, "text": " chế độ lái."},
+            {"type": "assistant_speech_start", "t_ms": 1600},
+            {"type": "assistant_speech_stop", "t_ms": 2200},
+            {"type": "user_audio_chunk_sent", "t_ms": 3300, "overlap": True},
+            {"type": "user_transcript_done", "t_ms": 4200, "text": "Hủy lệnh."},
+            {"type": "tool_result", "t_ms": 4610, "tool": "drive_system"},
+        ],
+    )
+    write_jsonl(run / "episodes.jsonl", [episode])
+
+    detail = DashboardStore(tmp_path).episode_detail(
+        "assistant_response_run",
+        episode["episode_id"],
+    )
+
+    response_events = [
+        event for event in detail["timeline"] if event["event"] == "assistant_response"
+    ]
+    assert response_events == [
+        {
+            "event": "assistant_response",
+            "t_ms": 1500,
+            "text": "Đang chuyển chế độ lái.",
+            "delta_count": 3,
+            "source": "normalized",
+            "sources": ["normalized"],
+            "kind": "derived",
+            "lane": "assistant",
+            "timestamp_kind": "normalized",
+            "priority": False,
+        }
+    ]
+
+
+def test_dashboard_timeline_deduplicates_tool_call_sources(tmp_path):
+    run = tmp_path / "dedupe_timeline_run"
+    run.mkdir()
+    base = sample_fdrc_episode()
+    tool_call = base["tool_calls"][0]
+    episode = sample_fdrc_episode(
+        voice_events=[
+            {"event": "assistant_speech_expected_start", "t_ms": 2600, "source": "expected"},
+            {"event": "tool_commit_allowed_after", "t_ms": 4300, "source": "expected"},
+        ],
+        normalized_events=[
+            {"type": "assistant_speech_start", "t_ms": 2600},
+            {"type": "user_audio_chunk_sent", "t_ms": 3300, "overlap": True},
+            {"type": "assistant_speech_stop", "t_ms": 3700},
+            {"type": "user_transcript_done", "t_ms": 4200, "text": "À không, 24 độ."},
+            {
+                "type": "tool_call",
+                "t_ms": tool_call["t_ms"],
+                "tool": tool_call["tool"],
+                "args": tool_call["args"],
+            },
+            {"type": "tool_result", "t_ms": 4610, "tool": tool_call["tool"]},
+        ],
+    )
+    write_jsonl(run / "episodes.jsonl", [episode])
+
+    detail = DashboardStore(tmp_path).episode_detail("dedupe_timeline_run", episode["episode_id"])
+    tool_events = [event for event in detail["timeline"] if event["event"] == "tool_call"]
+
+    assert len(tool_events) == 1
+    assert tool_events[0]["event"] == "tool_call"
+    assert tool_events[0]["sources"] == ["normalized", "tool_calls"]
+    assert tool_events[0]["kind"] == "runtime"
+    assert tool_events[0]["lane"] == "tool"
+    assert tool_events[0]["timestamp_kind"] == "runtime_observed"
+
+    marker_events = [
+        event for event in detail["timeline"] if event["event"] == "tool_commit_allowed_after"
+    ]
+    assert marker_events[0]["kind"] == "marker"
+    assert marker_events[0]["lane"] == "marker"
+    assert marker_events[0]["timestamp_kind"] == "scheduled"
+
+
+def test_dashboard_fdrc_slot_eval_infers_poi_name_from_dest_name(tmp_path):
+    run = tmp_path / "slot_eval_run"
+    run.mkdir()
+    tasks = load_base_tasks()
+    overlay = next(row for row in load_overlays() if row["speech_overlay_id"] == "fdrc_navigation_005")
+    task = tasks[overlay["base_task_id"]]
+    expected_call = deepcopy(overlay["expected_tool_calls"][0])
+    episode = reference_episode(task, overlay, FDRC_TRACK, "vi_north_normal")
+    episode.update(
+        {
+            "run_kind": "provider",
+            "is_reference": False,
+            "agent": "openai_as_vivi",
+            "provider": "openai",
+            "model": "gpt-realtime-mini",
+            "adapter": "openai_realtime",
+            "captured_slots": {},
+            "tool_calls": [{**expected_call, "t_ms": 4700}],
+            "tool_results": [{"success": True}],
+            "normalized_events": [
+                {"type": "assistant_speech_start", "t_ms": 2600},
+                {"type": "user_audio_chunk_sent", "t_ms": 3300, "overlap": True},
+                {"type": "assistant_speech_stop", "t_ms": 3700},
+                {"type": "user_transcript_done", "t_ms": 4200, "text": "Không, đến Ga Cát Linh cơ."},
+                {"type": "tool_result", "t_ms": 4710, "tool": "compute_routes"},
+            ],
+        }
+    )
+    write_jsonl(run / "episodes.jsonl", [episode])
+
+    detail = DashboardStore(tmp_path).episode_detail("slot_eval_run", episode["episode_id"])
+
+    assert detail["slot_eval"]["captured_slots"]["poi_name"] == "Ga Cát Linh"
+    assert detail["slot_eval"]["critical_slot_result"]["passed"] is True
+
+def test_dashboard_reevaluates_cancel_tool_attempt_as_failure(tmp_path):
+    run = tmp_path / "cancel_violation_run"
+    run.mkdir()
+    tasks = load_base_tasks()
+    overlay = next(row for row in load_overlays() if row["speech_overlay_id"] == "fdrc_cancel_002")
+    task = tasks[overlay["base_task_id"]]
+    episode = reference_episode(task, overlay, FDRC_TRACK, "vi_north_normal")
+    episode.update(
+        {
+            "episode_id": "gemini_cancel_violation",
+            "run_kind": "provider",
+            "is_reference": False,
+            "agent": "gemini_as_vivi",
+            "provider": "gemini",
+            "model": "gemini-live",
+            "adapter": "gemini_live",
+            "tool_calls": [{**overlay["forbidden_tool_calls"][0], "t_ms": 4600}],
+            "tool_results": [
+                {"success": False, "error": "cancelled_intent_forbids_tool_call"}
+            ],
+            "final_state": {"committed_intent": "cancel"},
+            "normalized_events": [
+                {"type": "assistant_speech_start", "t_ms": 2600},
+                {"type": "user_audio_chunk_sent", "t_ms": 3300, "overlap": True},
+                {"type": "assistant_speech_stop", "t_ms": 3700},
+                {"type": "user_transcript_done", "t_ms": 4200, "text": "Thôi hủy."},
+                {"type": "tool_result", "t_ms": 4610, "tool": "compute_routes"},
+            ],
+            "scores": {**episode.get("scores", {}), "final_pass": 1},
+            "failure_types": [],
+        }
+    )
+    write_jsonl(run / "episodes.jsonl", [episode])
+
+    store = DashboardStore(tmp_path)
+    detail = store.episode_detail("cancel_violation_run", "gemini_cancel_violation")
+    summary = store.run_summary("cancel_violation_run", track=FDRC_TRACK)
+
+    assert detail["summary"]["passed"] is False
+    assert detail["summary"]["cancel_respected"] is False
+    assert detail["summary"]["cancel_attempted_tool_call"] is True
+    assert detail["summary"]["cancel_tool_call_count"] == 1
+    assert detail["repair"]["cancel_blocked_tool_call_count"] == 1
+    assert "CANCEL_NOT_RESPECTED" in detail["failure_types"]
+    assert summary["metrics"]["cancel_success_rate"] == 0.0
+
+
+def test_dashboard_timeline_ui_labels_expected_speech_marker():
+    app_js = Path("src/dashboard/static/app.js").read_text(encoding="utf-8")
+    styles_css = Path("src/dashboard/static/styles.css").read_text(encoding="utf-8")
+    assert "cửa sổ phát lời dự kiến" in app_js
+    assert "mốc lập lịch dự kiến, không phải hành động trợ lý đã thực hiện" in app_js
+    assert "tl-event-note-speech" in app_js
+    assert "const isSpeechNote = Boolean(e.text);" in app_js
+    assert "font-weight: 800" in styles_css
+    assert "#071f3d" in styles_css
+    assert "hủy lệnh được tôn trọng" in app_js
+    assert "CANCEL_NOT_RESPECTED" in app_js
+    assert "Tiêu biểu" in app_js
+    assert "mẫu" in app_js
+
+
 def test_fdrc_required_metric_contract_is_non_null_for_scored_run(tmp_path):
     run = tmp_path / "fdrc_run"
     run.mkdir()
@@ -222,6 +408,59 @@ def test_fdrc_required_metric_contract_is_non_null_for_scored_run(tmp_path):
         "denominator": 0,
     }
     assert summary["metrics"]["metric_contract"]["violations"] == []
+
+
+def test_fdrc_summary_and_episode_filters_scope_audio_condition(tmp_path):
+    run = tmp_path / "fdrc_audio_slice_run"
+    run.mkdir()
+    clean = sample_fdrc_episode(
+        episode_id="clean_ep",
+        audio_condition_id="clean",
+    )
+    cabin = sample_fdrc_episode(
+        episode_id="cabin_ep",
+        audio_condition_id="cabin_noise",
+        scores={**sample_fdrc_episode()["scores"], "final_pass": 0},
+    )
+    write_jsonl(run / "episodes.jsonl", [clean, cabin])
+
+    store = DashboardStore(tmp_path)
+    summary = store.run_summary(
+        "fdrc_audio_slice_run",
+        track=FDRC_TRACK,
+        domain=clean["domain"],
+        audio_condition_id="clean",
+    )
+    episodes = store.list_episodes(
+        "fdrc_audio_slice_run",
+        track=FDRC_TRACK,
+        domain=clean["domain"],
+        audio_condition_id="clean",
+    )
+
+    assert summary["episode_count"] == 1
+    assert summary["metadata"]["audio_conditions"] == ["clean"]
+    assert episodes["count"] == 1
+    assert episodes["episodes"][0]["episode_id"] == "clean_ep"
+
+
+def test_fdrc_metric_catalog_hides_alias_duplicate_cards(tmp_path):
+    run = tmp_path / "fdrc_catalog_run"
+    run.mkdir()
+    write_jsonl(run / "episodes.jsonl", [sample_fdrc_episode()])
+
+    summary = DashboardStore(tmp_path).run_summary("fdrc_catalog_run", track=FDRC_TRACK)
+    metric_keys = {row["key"] for row in summary["metric_catalog"]}
+    fdrc_group = next(row for row in summary["metric_groups"] if row["id"] == "fdrc")
+
+    assert summary["metrics"]["fdrc_pass_at_1"] is not None
+    assert summary["metrics"]["raw_fdrc_pass_at_1"] is not None
+    assert "raw_fdrc_pass_at_1" in metric_keys
+    assert "performance_fdrc_pass_at_1" in metric_keys
+    assert "fdrc_pass_at_1" not in metric_keys
+    assert "validity_failure_counts" not in metric_keys
+    assert "fdrc_pass_at_1" not in fdrc_group["metric_keys"]
+    assert "validity_failure_counts" not in fdrc_group["metric_keys"]
 
 
 def test_fdrc_api_and_evaluator_contract_metrics_match(tmp_path):
@@ -270,14 +509,148 @@ def test_explain_metric_matches_summary_and_is_consistent(tmp_path):
     assert listed <= {"a1", "a2"}
 
 
+def test_explain_metric_splits_success_and_failed_samples(tmp_path):
+    run = tmp_path / "metric_samples_run"
+    run.mkdir()
+    episodes = [
+        sample_episode(
+            episode_id=f"pass_{index}",
+            policy_gating={"decision_correct": True},
+        )
+        for index in range(12)
+    ] + [
+        sample_episode(
+            episode_id=f"fail_{index}",
+            scores={**sample_episode()["scores"], "final_pass": 0},
+            policy_gating={"decision_correct": False},
+        )
+        for index in range(3)
+    ]
+    write_jsonl(run / "episodes.jsonl", episodes)
+
+    result = DashboardStore(tmp_path).explain_metric(
+        "metric_samples_run",
+        "policy_compliance_rate",
+        track="voice_policy_command_gating",
+    )
+
+    assert result["successful_episode_count"] == 12
+    assert result["failed_episode_count"] == 3
+    assert len(result["successful_episodes"]) == 10
+    assert len(result["failed_episodes"]) == 3
+    assert result["episode_sample_limit"] == 10
+    assert result["numerator_is_failure"] is False
+
+
+def test_explain_metric_keeps_fdrc_performance_pass_fail_samples(tmp_path):
+    run = tmp_path / "fdrc_performance_samples_run"
+    run.mkdir()
+
+    def fdrc_row(episode_id, final_pass):
+        return {
+            "episode_id": episode_id,
+            "benchmark_track": FDRC_TRACK,
+            "domain": "automotive",
+            "base_task_id": "synthetic_task",
+            "speech_overlay_id": "synthetic_overlay",
+            "accent_region": "north",
+            "speech_speed": "normal",
+            "fdrc_validity": {"valid": True, "reasons": []},
+            "scores": {"final_pass": int(final_pass), "state_match": int(final_pass)},
+            "repair": {
+                "correction_uptaken": bool(final_pass),
+                "old_intent_committed": False,
+                "forbidden_tool_called": False,
+            },
+            "failure_types": [] if final_pass else ["FINAL_STATE_MISMATCH"],
+        }
+
+    episodes = [
+        *(fdrc_row(f"pass_{index}", True) for index in range(12)),
+        *(fdrc_row(f"fail_{index}", False) for index in range(74)),
+    ]
+    write_jsonl(run / "episodes.jsonl", episodes)
+
+    result = DashboardStore(tmp_path).explain_metric(
+        "fdrc_performance_samples_run",
+        "performance_fdrc_pass_at_1",
+        track=FDRC_TRACK,
+    )
+
+    assert result["numerator"] == 12
+    assert result["denominator"] == 86
+    assert result["successful_episode_count"] == 12
+    assert result["failed_episode_count"] == 74
+    assert len(result["successful_episodes"]) == 10
+    assert len(result["failed_episodes"]) == 10
+    assert {row["episode_id"] for row in result["successful_episodes"]} <= {
+        f"pass_{index}" for index in range(12)
+    }
+    assert {row["episode_id"] for row in result["failed_episodes"]} <= {
+        f"fail_{index}" for index in range(74)
+    }
+
+
+def test_explain_metric_supports_latency_summary_cards(tmp_path):
+    run = tmp_path / "fdrc_latency_summary_run"
+    run.mkdir()
+    episodes = [
+        sample_fdrc_episode(episode_id="lat1"),
+        sample_fdrc_episode(episode_id="lat2"),
+    ]
+    write_jsonl(run / "episodes.jsonl", episodes)
+
+    store = DashboardStore(tmp_path)
+    summary = store.run_summary("fdrc_latency_summary_run", track=FDRC_TRACK)
+    key = "latency_summary.yield_latency_ms.max_ms"
+    card = next(row for row in summary["metric_catalog"] if row["key"] == key)
+    result = store.explain_metric("fdrc_latency_summary_run", key, track=FDRC_TRACK)
+
+    assert result["supported"] is True
+    assert result["value"] == card["value"]
+    assert result["denominator_episode_count"] == 2
+    assert result["denominator_episodes"]
+    fields = result["denominator_episodes"][0]["fields"]
+    assert any(field["label"] == "yield_latency_ms" for field in fields)
+
+
 def test_explain_metric_unsupported_key(tmp_path):
     run = tmp_path / "fdrc_explain_run2"
     run.mkdir()
     write_jsonl(run / "episodes.jsonl", [sample_fdrc_episode(episode_id="x")])
     store = DashboardStore(tmp_path)
-    result = store.explain_metric("fdrc_explain_run2", "yield_latency_p50_ms", track=FDRC_TRACK)
+    result = store.explain_metric("fdrc_explain_run2", "some_unknown_metric", track=FDRC_TRACK)
     assert result["supported"] is False
     assert result["label"]
+
+
+def test_explain_metric_supports_policy_gating_track(tmp_path):
+    run = tmp_path / "pg_explain_run"
+    run.mkdir()
+    episodes = [
+        sample_episode(episode_id="p1"),
+        sample_episode(
+            episode_id="p2",
+            scores={"final_pass": 0, "tool_exact_match": 0, "argument_exact_match": 0, "state_match": 0},
+            decision="execute",
+            failure_types=["POLICY_VIOLATION"],
+        ),
+    ]
+    write_jsonl(run / "episodes.jsonl", episodes)
+
+    store = DashboardStore(tmp_path)
+    summary = store.run_summary("pg_explain_run", track="voice_policy_command_gating")
+    key = "final_state_correctness"
+    displayed = summary["metrics"].get(key)
+
+    result = store.explain_metric("pg_explain_run", key, track="voice_policy_command_gating")
+    assert result["supported"] is True
+    assert result["formula_vi"]
+    assert result["numerator"] == len(result["numerator_episodes"])
+    if displayed is None:
+        assert result["value"] is None
+    else:
+        assert abs(result["value"] - displayed) < 1e-9
 
 
 def test_explain_metric_missing_run_raises(tmp_path):
@@ -286,7 +659,7 @@ def test_explain_metric_missing_run_raises(tmp_path):
         store.explain_metric("does_not_exist", "forbidden_tool_call_rate")
 
 
-def test_explain_metric_reports_displayed_value_when_metrics_json_valid(tmp_path):
+def test_explain_metric_reports_recomputed_value_when_metrics_json_valid_but_stale(tmp_path):
     run = tmp_path / "fdrc_explain_run3"
     run.mkdir()
     episodes = [sample_fdrc_episode(episode_id="a1"), sample_fdrc_episode(episode_id="a2")]
@@ -296,11 +669,74 @@ def test_explain_metric_reports_displayed_value_when_metrics_json_valid(tmp_path
 
     store = DashboardStore(tmp_path)
     result = store.explain_metric("fdrc_explain_run3", "forbidden_tool_call_rate", track=FDRC_TRACK)
-    assert result["metric_source"] == "metrics.json"
+    assert result["metric_source"] == "episodes.jsonl"
     assert result["metrics_hash_valid"] is True
-    assert result["value"] == 0.999                      # headline = displayed (from metrics.json)
-    assert result["recomputed_value"] != 0.999           # recomputed from episodes differs
-    assert result["value_matches_recomputed"] is False
+    assert result["value"] == result["recomputed_value"]  # headline = evaluator-derived value
+    assert result["metrics_json_value"] == 0.999
+    assert result["metrics_json_matches_recomputed"] is False
+    assert result["value_matches_recomputed"] is True
+
+
+def test_policy_gating_summary_prefers_recomputed_metrics_over_stale_metrics_json(tmp_path):
+    run = tmp_path / "pg_stale_metric_run"
+    run.mkdir()
+    episodes = [
+        sample_episode(
+            episode_id="p1",
+            policy_gating={"decision_correct": True, "response_honest": True},
+        ),
+        sample_episode(
+            episode_id="p2",
+            scores={"final_pass": 0, "tool_exact_match": 0, "argument_exact_match": 0, "state_match": 0},
+            policy_gating={"decision_correct": False, "response_honest": True},
+        ),
+    ]
+    write_jsonl(run / "episodes.jsonl", episodes)
+    write_json(run / "metrics.json", metrics_with_metadata(episodes, {"policy_compliance_rate": 0.999}))
+
+    summary = DashboardStore(tmp_path).run_summary(
+        "pg_stale_metric_run", track="voice_policy_command_gating"
+    )
+
+    assert summary["metrics_hash_valid"] is True
+    assert summary["metric_source"] == "episodes.jsonl"
+    assert summary["metrics"]["policy_compliance_rate"] == 0.5
+
+
+def test_metric_catalog_includes_plain_meaning_and_result_comment(tmp_path):
+    run = tmp_path / "pg_metric_explainability_run"
+    run.mkdir()
+    episodes = [
+        sample_episode(
+            episode_id="p1",
+            policy_gating={"decision_correct": True, "response_honest": True},
+        ),
+        sample_episode(
+            episode_id="p2",
+            scores={"final_pass": 0, "tool_exact_match": 0, "argument_exact_match": 0, "state_match": 0},
+            policy_gating={"decision_correct": False, "response_honest": True},
+        ),
+    ]
+    write_jsonl(run / "episodes.jsonl", episodes)
+
+    summary = DashboardStore(tmp_path).run_summary(
+        "pg_metric_explainability_run", track="voice_policy_command_gating"
+    )
+    policy_card = next(
+        row for row in summary["metric_catalog"] if row["key"] == "policy_compliance_rate"
+    )
+
+    assert "execute, clarify, refuse" in policy_card["plain_meaning"]
+    assert "50.0%" in policy_card["result_comment"]
+    assert "n=2" in policy_card["result_comment"]
+
+    detail = DashboardStore(tmp_path).explain_metric(
+        "pg_metric_explainability_run",
+        "policy_compliance_rate",
+        track="voice_policy_command_gating",
+    )
+    assert detail["plain_meaning"] == policy_card["plain_meaning"]
+    assert "50.0%" in detail["result_comment"]
 
 
 def test_synth_null_reason_gates_performance_by_validity():
@@ -344,3 +780,26 @@ def test_policy_gating_summary_has_group_and_matrix(tmp_path):
     assert "latency" not in group_ids
     null_cards = [m["key"] for m in summary["metric_catalog"] if m["value"] is None]
     assert null_cards == []
+
+
+def test_evaluation_view_uses_embedded_snapshot_for_unknown_overlay_id():
+    # A v2 run whose speech_overlay_id is NOT in the default overlays file must still
+    # evaluate, by using the overlay_snapshot carried on the episode.
+    from src.io import load_base_tasks, load_overlays
+    from src.runner import reference_episode
+    from src.dashboard.service import _evaluation_view
+
+    tasks = load_base_tasks()
+    overlay = dict(next(r for r in load_overlays()
+                        if r["benchmark_track"] == "full_duplex_repair_to_commit"))
+    task = tasks[overlay["base_task_id"]]
+    episode = reference_episode(task, overlay, "full_duplex_repair_to_commit", "vi_north_normal")
+    episode["run_kind"] = "provider"
+    episode["is_reference"] = False
+    overlay["speech_overlay_id"] = "fdrc_v2_999_not_in_default_file"
+    episode["speech_overlay_id"] = "fdrc_v2_999_not_in_default_file"
+    episode["overlay_snapshot"] = overlay
+
+    [row] = _evaluation_view([episode])
+    assert "unknown_overlay" not in str(row.get("failure_types", []))
+    assert row.get("scores", {}).get("final_pass") is not None

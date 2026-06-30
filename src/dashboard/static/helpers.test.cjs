@@ -105,6 +105,14 @@ t("classifyEvent buckets", () => {
   assert.strictEqual(VB.classifyEvent("user_interrupt_start").cls, "interrupt");
   assert.strictEqual(VB.classifyEvent("assistant_yielded").cls, "yield");
   assert.strictEqual(VB.classifyEvent("assistant_should_yield_by").cls, "expected");
+  assert.deepStrictEqual(
+    VB.classifyEvent({ event: "tool_commit_allowed_after", kind: "marker", lane: "marker" }),
+    { lane: "marker", cls: "expected" }
+  );
+  assert.deepStrictEqual(
+    VB.classifyEvent({ event: "assistant_response", kind: "derived", lane: "assistant" }),
+    { lane: "assistant", cls: "derived" }
+  );
 });
 
 // ---- routing ----
@@ -205,7 +213,6 @@ t("metricTone: good-high metric green when high, red when low", () => {
   assert.strictEqual(VB.metricTone("fdrc_pass_at_1", 0.8, "rate"), "s-warn");
   assert.strictEqual(VB.metricTone("fdrc_pass_at_1", 0.0, "rate"), "s-fail");
   assert.strictEqual(VB.metricTone("state_match", 0.0, "rate"), "s-fail");
-  assert.strictEqual(VB.metricTone("fdrc_validity_rate", 0.625, "rate"), "s-fail");
 });
 t("metricTone: bad-high metric green when low, red when high", () => {
   assert.strictEqual(VB.metricTone("policy_violation_rate", 0.0, "rate"), "s-pass");
@@ -219,6 +226,9 @@ t("metricTone: non-rate units and unknown/null are neutral", () => {
   assert.strictEqual(VB.metricTone("valid_episode_count", 1, "count"), "");
   assert.strictEqual(VB.metricTone("some_unknown_rate", 0.0, "rate"), "");
   assert.strictEqual(VB.metricTone("fdrc_pass_at_1", null, "rate"), "");
+  // Validity is a data-quality gate, not a performance score: always neutral, even low.
+  assert.strictEqual(VB.metricTone("fdrc_validity_rate", 0.625, "rate"), "");
+  assert.strictEqual(VB.metricTone("fdrc_validity_rate", 1.0, "rate"), "");
 });
 t("metricTone: dotted keys resolve by base", () => {
   assert.strictEqual(VB.metricTone("performance_yield_latency_pass_rate", 1.0, "rate"), "s-pass");

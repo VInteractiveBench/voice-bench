@@ -737,6 +737,56 @@
     "required_communication": true
   },
   {
+    "id": "media_slot_volume_3_to_6",
+    "domain": "media_phone",
+    "user_goal": "Tăng âm lượng lên mức 6.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "media_control",
+        "args": {
+          "command": "set_volume",
+          "value": 6
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "media_control"
+    },
+    "expected_critical_slots": {
+      "command": "set_volume",
+      "value": 6
+    },
+    "required_communication": true
+  },
+  {
+    "id": "media_slot_volume_8_to_4",
+    "domain": "media_phone",
+    "user_goal": "Giảm âm lượng xuống mức 4.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "media_control",
+        "args": {
+          "command": "set_volume",
+          "value": 4
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "media_control"
+    },
+    "expected_critical_slots": {
+      "command": "set_volume",
+      "value": 4
+    },
+    "required_communication": true
+  },
+  {
     "id": "pg_climate_driver",
     "domain": "automotive",
     "user_goal": "Đặt điều hòa bên ghế lái 23 độ.",
@@ -911,5 +961,781 @@
     "expected_critical_slots": {},
     "required_communication": true,
     "policy_gating": true
+  },
+  {
+    "id": "auto_ent_drive_sport_to_eco",
+    "domain": "automotive",
+    "user_goal": "Lúc nãy tôi nói hơi vội, xe đang vào đoạn đường thoáng rồi, chuyển chế độ lái sang Sport cho tôi.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "drive_system",
+        "args": {
+          "device": "drive_mode",
+          "value": "eco"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "drive_system"
+    },
+    "expected_critical_slots": {
+      "device": "drive_mode",
+      "value": "eco"
+    },
+    "required_communication": true,
+    "source_dataset": "fdrc_balanced_v2_enriched_90"
+  },
+  {
+    "id": "auto_ent_drive_sport_to_comfort",
+    "domain": "automotive",
+    "user_goal": "Đường bắt đầu đông nhưng tôi vẫn muốn xe phản hồi nhanh hơn một chút, bật chế độ Sport trước nhé.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "drive_system",
+        "args": {
+          "device": "drive_mode",
+          "value": "comfort"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "drive_system"
+    },
+    "expected_critical_slots": {
+      "device": "drive_mode",
+      "value": "comfort"
+    },
+    "required_communication": true,
+    "source_dataset": "fdrc_balanced_v2_enriched_90"
+  },
+  {
+    "id": "auto_ent_drive_eco_to_sport",
+    "domain": "automotive",
+    "user_goal": "Cho xe về chế độ Eco để đi trong phố, tôi muốn tiết kiệm nhiên liệu nhất có thể.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "drive_system",
+        "args": {
+          "device": "drive_mode",
+          "value": "sport"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "drive_system"
+    },
+    "expected_critical_slots": {
+      "device": "drive_mode",
+      "value": "sport"
+    },
+    "required_communication": true,
+    "source_dataset": "fdrc_balanced_v2_enriched_90"
+  },
+  {
+    "id": "auto_ent_drive_comfort_to_eco",
+    "domain": "automotive",
+    "user_goal": "Tôi đang chở trẻ con phía sau, bật chế độ lái Comfort và giữ mọi thứ nhẹ nhàng.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "drive_system",
+        "args": {
+          "device": "drive_mode",
+          "value": "eco"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "drive_system"
+    },
+    "expected_critical_slots": {
+      "device": "drive_mode",
+      "value": "eco"
+    },
+    "required_communication": true,
+    "source_dataset": "fdrc_balanced_v2_enriched_90"
+  },
+  {
+    "id": "auto_slot_temp_20_to_24",
+    "domain": "automotive",
+    "user_goal": "Trong cabin hơi nóng, đặt điều hòa bên ghế lái xuống 20 độ và giữ quạt ở mức vừa.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "climate_control",
+        "args": {
+          "device": "temp",
+          "value": "24"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "climate_control"
+    },
+    "expected_critical_slots": {
+      "device": "temp",
+      "value": "24"
+    },
+    "required_communication": true,
+    "source_dataset": "fdrc_balanced_v2_enriched_90"
+  },
+  {
+    "id": "auto_slot_temp_26_to_23",
+    "domain": "automotive",
+    "user_goal": "Người ngồi sau đang kêu lạnh, tăng nhiệt độ điều hòa lên 26 độ cho dễ chịu hơn.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "climate_control",
+        "args": {
+          "device": "temp",
+          "value": "23"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "climate_control"
+    },
+    "expected_critical_slots": {
+      "device": "temp",
+      "value": "23"
+    },
+    "required_communication": true,
+    "source_dataset": "fdrc_balanced_v2_enriched_90"
+  },
+  {
+    "id": "auto_slot_fan_5_to_2",
+    "domain": "automotive",
+    "user_goal": "Kính trước bắt đầu mờ, tăng quạt điều hòa lên mức 5 để làm khô nhanh hơn.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "climate_control",
+        "args": {
+          "device": "fan",
+          "value": "2"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "climate_control"
+    },
+    "expected_critical_slots": {
+      "device": "fan_speed",
+      "value": "2"
+    },
+    "required_communication": true,
+    "source_dataset": "fdrc_balanced_v2_enriched_90"
+  },
+  {
+    "id": "auto_cancel_drive_sport",
+    "domain": "automotive",
+    "user_goal": "Đường trước mặt đang thoáng, chuyển chế độ lái sang Sport để xe bốc hơn một chút.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [],
+    "expected_final_state": {
+      "committed_intent": "cancel"
+    },
+    "expected_critical_slots": {},
+    "required_communication": true,
+    "source_dataset": "fdrc_balanced_v2_enriched_90"
+  },
+  {
+    "id": "auto_cancel_climate_temp",
+    "domain": "automotive",
+    "user_goal": "Tôi thấy cabin hơi ngột ngạt, đặt điều hòa xuống 21 độ và làm mát nhanh giúp tôi.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [],
+    "expected_final_state": {
+      "committed_intent": "cancel"
+    },
+    "expected_critical_slots": {},
+    "required_communication": true,
+    "source_dataset": "fdrc_balanced_v2_enriched_90"
+  },
+  {
+    "id": "auto_cancel_drive_eco",
+    "domain": "automotive",
+    "user_goal": "Đang chạy trong phố đông, chuyển xe sang chế độ Eco để tiết kiệm nhiên liệu.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [],
+    "expected_final_state": {
+      "committed_intent": "cancel"
+    },
+    "expected_critical_slots": {},
+    "required_communication": true,
+    "source_dataset": "fdrc_balanced_v2_enriched_90"
+  },
+  {
+    "id": "auto_cancel_fan_speed",
+    "domain": "automotive",
+    "user_goal": "Kính bắt đầu mờ do mưa nhỏ, tăng quạt điều hòa lên mức 4 cho tôi.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [],
+    "expected_final_state": {
+      "committed_intent": "cancel"
+    },
+    "expected_critical_slots": {},
+    "required_communication": true,
+    "source_dataset": "fdrc_balanced_v2_enriched_90"
+  },
+  {
+    "id": "auto_slot_temp_18_to_22",
+    "domain": "automotive",
+    "user_goal": "Tôi hơi buồn ngủ nên muốn cabin mát sâu hơn, đặt điều hòa xuống 18 độ.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "climate_control",
+        "args": {
+          "device": "temp",
+          "value": "22"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "climate_control"
+    },
+    "expected_critical_slots": {
+      "device": "temp",
+      "value": "22"
+    },
+    "required_communication": true,
+    "source_dataset": "fdrc_balanced_v2_enriched_90"
+  },
+  {
+    "id": "nav_ent_vincom_to_vinmec",
+    "domain": "navigation",
+    "user_goal": "Tôi đang ở gần Minh Khai, dẫn tôi đến Vincom Times City và ưu tiên đường dễ đi.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "compute_routes",
+        "args": {
+          "dest_name": "Vinmec Times City",
+          "routing_mode": "fast",
+          "dest_lat": 20.997,
+          "dest_lng": 105.868
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "compute_routes"
+    },
+    "expected_critical_slots": {
+      "dest_name": "Vinmec Times City",
+      "routing_mode": "fast"
+    },
+    "required_communication": true,
+    "source_dataset": "fdrc_balanced_v2_enriched_90"
+  },
+  {
+    "id": "nav_ent_bachmai_to_vietduc",
+    "domain": "navigation",
+    "user_goal": "Tính đường tới Bệnh viện Bạch Mai càng nhanh càng tốt, tôi đang cần đi gấp.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "compute_routes",
+        "args": {
+          "dest_name": "Bệnh viện Việt Đức",
+          "routing_mode": "fast",
+          "dest_lat": 21.027,
+          "dest_lng": 105.846
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "compute_routes"
+    },
+    "expected_critical_slots": {
+      "dest_name": "Bệnh viện Việt Đức",
+      "routing_mode": "fast"
+    },
+    "required_communication": true,
+    "source_dataset": "fdrc_balanced_v2_enriched_90"
+  },
+  {
+    "id": "nav_ent_aeon_lb_to_hd",
+    "domain": "navigation",
+    "user_goal": "Dẫn tôi tới AEON Mall Long Biên, nếu có đường nào ít đèn đỏ thì chọn giúp.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "compute_routes",
+        "args": {
+          "dest_name": "AEON Mall Hà Đông",
+          "routing_mode": "eco",
+          "dest_lat": 20.981,
+          "dest_lng": 105.787
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "compute_routes"
+    },
+    "expected_critical_slots": {
+      "dest_name": "AEON Mall Hà Đông",
+      "routing_mode": "eco"
+    },
+    "required_communication": true,
+    "source_dataset": "fdrc_balanced_v2_enriched_90"
+  },
+  {
+    "id": "nav_slot_noibai_fast_to_eco",
+    "domain": "navigation",
+    "user_goal": "Tính tuyến nhanh tới sân bay Nội Bài, tôi muốn biết đường nào đến sớm nhất.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "compute_routes",
+        "args": {
+          "dest_name": "Sân bay Nội Bài",
+          "routing_mode": "eco",
+          "dest_lat": 21.214,
+          "dest_lng": 105.807
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "compute_routes"
+    },
+    "expected_critical_slots": {
+      "dest_name": "Sân bay Nội Bài",
+      "routing_mode": "eco"
+    },
+    "required_communication": true,
+    "source_dataset": "fdrc_balanced_v2_enriched_90"
+  },
+  {
+    "id": "nav_slot_home_short_to_lowtraffic",
+    "domain": "navigation",
+    "user_goal": "Dẫn tôi về nhà bằng tuyến ngắn nhất, kể cả phải đi qua vài đoạn đông xe.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "compute_routes",
+        "args": {
+          "dest_name": "Nhà",
+          "routing_mode": "eco",
+          "dest_lat": 21.0,
+          "dest_lng": 105.85
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "compute_routes"
+    },
+    "expected_critical_slots": {
+      "dest_name": "Nhà",
+      "routing_mode": "eco"
+    },
+    "required_communication": true,
+    "source_dataset": "fdrc_balanced_v2_enriched_90"
+  },
+  {
+    "id": "nav_slot_office_eco_to_fast",
+    "domain": "navigation",
+    "user_goal": "Dẫn tôi đến văn phòng bằng tuyến tiết kiệm, tránh đường vòng nếu không cần thiết.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "compute_routes",
+        "args": {
+          "dest_name": "Văn phòng",
+          "routing_mode": "fast",
+          "dest_lat": 21.03,
+          "dest_lng": 105.85
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "compute_routes"
+    },
+    "expected_critical_slots": {
+      "dest_name": "Văn phòng",
+      "routing_mode": "fast"
+    },
+    "required_communication": true,
+    "source_dataset": "fdrc_balanced_v2_enriched_90"
+  },
+  {
+    "id": "nav_cancel_ho_guom",
+    "domain": "navigation",
+    "user_goal": "Dẫn tôi đến Hồ Gươm bằng tuyến nào dễ đi nhất từ vị trí hiện tại.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [],
+    "expected_final_state": {
+      "committed_intent": "cancel"
+    },
+    "expected_critical_slots": {},
+    "required_communication": true,
+    "source_dataset": "fdrc_balanced_v2_enriched_90"
+  },
+  {
+    "id": "nav_cancel_noibai",
+    "domain": "navigation",
+    "user_goal": "Tính đường ra sân bay Nội Bài ngay bây giờ, ưu tiên tuyến ít tắc.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [],
+    "expected_final_state": {
+      "committed_intent": "cancel"
+    },
+    "expected_critical_slots": {},
+    "required_communication": true,
+    "source_dataset": "fdrc_balanced_v2_enriched_90"
+  },
+  {
+    "id": "nav_cancel_vincom",
+    "domain": "navigation",
+    "user_goal": "Dẫn đến Vincom Bà Triệu, tôi muốn ghé lấy đồ rồi quay lại sau.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [],
+    "expected_final_state": {
+      "committed_intent": "cancel"
+    },
+    "expected_critical_slots": {},
+    "required_communication": true,
+    "source_dataset": "fdrc_balanced_v2_enriched_90"
+  },
+  {
+    "id": "nav_cancel_home",
+    "domain": "navigation",
+    "user_goal": "Tìm đường về nhà từ đây, chọn tuyến quen thuộc nếu hệ thống có ghi nhớ.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [],
+    "expected_final_state": {
+      "committed_intent": "cancel"
+    },
+    "expected_critical_slots": {},
+    "required_communication": true,
+    "source_dataset": "fdrc_balanced_v2_enriched_90"
+  },
+  {
+    "id": "nav_slot_hospital_lowtraffic_to_shortest",
+    "domain": "navigation",
+    "user_goal": "Dẫn tới bệnh viện theo tuyến ít tắc, tôi không muốn kẹt ở các nút giao lớn.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "compute_routes",
+        "args": {
+          "dest_name": "Bệnh viện",
+          "routing_mode": "short",
+          "dest_lat": 21.02,
+          "dest_lng": 105.84
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "compute_routes"
+    },
+    "expected_critical_slots": {
+      "dest_name": "Bệnh viện",
+      "routing_mode": "short"
+    },
+    "required_communication": true,
+    "source_dataset": "fdrc_balanced_v2_enriched_90"
+  },
+  {
+    "id": "nav_ent_bk_to_neu",
+    "domain": "navigation",
+    "user_goal": "Tôi cần đi họp ở khu Bách Khoa, dẫn đến Đại học Bách Khoa Hà Nội trước.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "compute_routes",
+        "args": {
+          "dest_name": "Đại học Kinh tế Quốc dân",
+          "routing_mode": "fast",
+          "dest_lat": 20.998,
+          "dest_lng": 105.843
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "compute_routes"
+    },
+    "expected_critical_slots": {
+      "dest_name": "Đại học Kinh tế Quốc dân",
+      "routing_mode": "fast"
+    },
+    "required_communication": true,
+    "source_dataset": "fdrc_balanced_v2_enriched_90"
+  },
+  {
+    "id": "media_ent_sontung_to_mytam",
+    "domain": "media_phone",
+    "user_goal": "Mở nhạc của Sơn Tùng trong danh sách yêu thích, âm lượng vừa thôi để tôi nghe khi lái xe.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "media_control",
+        "args": {
+          "command": "play",
+          "target": "Mỹ Tâm",
+          "media_type": "music"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "media_control"
+    },
+    "expected_critical_slots": {
+      "command": "play",
+      "target": "Mỹ Tâm",
+      "media_type": "music"
+    },
+    "required_communication": true,
+    "source_dataset": "fdrc_balanced_v2_enriched_90"
+  },
+  {
+    "id": "media_ent_podcast_econ_to_ted",
+    "domain": "media_phone",
+    "user_goal": "Phát podcast Kinh tế hôm nay, nếu có tập mới nhất thì mở tập đó trước.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "media_control",
+        "args": {
+          "command": "play",
+          "target": "TED Talks Daily",
+          "media_type": "podcast"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "media_control"
+    },
+    "expected_critical_slots": {
+      "command": "play",
+      "target": "TED Talks Daily",
+      "media_type": "podcast"
+    },
+    "required_communication": true,
+    "source_dataset": "fdrc_balanced_v2_enriched_90"
+  },
+  {
+    "id": "phone_ent_nam_to_linh",
+    "domain": "media_phone",
+    "user_goal": "Gọi cho anh Nam ở công ty, dùng danh bạ chính nếu có nhiều số trùng tên.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "phone_manager",
+        "args": {
+          "intent": "confirm_call",
+          "target": "chị Linh"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "phone_manager"
+    },
+    "expected_critical_slots": {
+      "intent": "confirm_call",
+      "target": "chị Linh"
+    },
+    "required_communication": true,
+    "source_dataset": "fdrc_balanced_v2_enriched_90"
+  },
+  {
+    "id": "media_slot_radio_910_to_956",
+    "domain": "media_phone",
+    "user_goal": "Mở radio 91.0 FM và giữ nguyên nguồn phát trong xe, tôi muốn nghe tin giao thông.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "media_control",
+        "args": {
+          "command": "tune",
+          "target": "95.6",
+          "media_type": "radio"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "media_control"
+    },
+    "expected_critical_slots": {
+      "command": "tune",
+      "target": "95.6",
+      "media_type": "radio"
+    },
+    "required_communication": true,
+    "source_dataset": "fdrc_balanced_v2_enriched_90"
+  },
+  {
+    "id": "media_slot_radio_1027_to_995",
+    "domain": "media_phone",
+    "user_goal": "Chuyển radio sang 102.7 FM, tôi muốn nghe chương trình đang phát lúc này.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "media_control",
+        "args": {
+          "command": "tune",
+          "target": "99.5",
+          "media_type": "radio"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "media_control"
+    },
+    "expected_critical_slots": {
+      "command": "tune",
+      "target": "99.5",
+      "media_type": "radio"
+    },
+    "required_communication": true,
+    "source_dataset": "fdrc_balanced_v2_enriched_90"
+  },
+  {
+    "id": "phone_cancel_anh_nam",
+    "domain": "media_phone",
+    "user_goal": "Gọi anh Nam ở công ty ngay bây giờ, nếu có nhiều số thì chọn số di động.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [],
+    "expected_final_state": {
+      "committed_intent": "cancel"
+    },
+    "expected_critical_slots": {},
+    "required_communication": true,
+    "source_dataset": "fdrc_balanced_v2_enriched_90"
+  },
+  {
+    "id": "media_cancel_mytam",
+    "domain": "media_phone",
+    "user_goal": "Phát album nhạc Mỹ Tâm gần đây nhất và tiếp tục từ bài tôi nghe dở.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [],
+    "expected_final_state": {
+      "committed_intent": "cancel"
+    },
+    "expected_critical_slots": {},
+    "required_communication": true,
+    "source_dataset": "fdrc_balanced_v2_enriched_90"
+  },
+  {
+    "id": "phone_cancel_shipper",
+    "domain": "media_phone",
+    "user_goal": "Gọi lại số shipper vừa gọi nhỡ cho tôi, bật loa ngoài khi kết nối.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [],
+    "expected_final_state": {
+      "committed_intent": "cancel"
+    },
+    "expected_critical_slots": {},
+    "required_communication": true,
+    "source_dataset": "fdrc_balanced_v2_enriched_90"
+  },
+  {
+    "id": "phone_ent_me_to_bo",
+    "domain": "media_phone",
+    "user_goal": "Gọi cho mẹ bằng loa ngoài, tôi cần nói nhanh trước khi vào hầm gửi xe.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [
+      {
+        "tool": "phone_manager",
+        "args": {
+          "intent": "confirm_call",
+          "target": "bố"
+        }
+      }
+    ],
+    "expected_final_state": {
+      "committed_intent": "phone_manager"
+    },
+    "expected_critical_slots": {
+      "intent": "confirm_call",
+      "target": "bố"
+    },
+    "required_communication": true,
+    "source_dataset": "fdrc_balanced_v2_enriched_90"
+  },
+  {
+    "id": "media_cancel_radio",
+    "domain": "media_phone",
+    "user_goal": "Mở radio 95.6 FM để nghe bản tin giao thông trước khi ra đường lớn.",
+    "initial_state": {
+      "committed_intent": null
+    },
+    "expected_tool_calls": [],
+    "expected_final_state": {
+      "committed_intent": "cancel"
+    },
+    "expected_critical_slots": {},
+    "required_communication": true,
+    "source_dataset": "fdrc_balanced_v2_enriched_90"
   }
 ]
