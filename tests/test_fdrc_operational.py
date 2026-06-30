@@ -6,7 +6,7 @@ from src.evaluator.operational import (
     tool_calls_covered,
     argument_match_normalized,
 )
-from src.evaluator.fdrc_evaluator import evaluate_fdrc_episode
+from src.evaluator.fdrc_evaluator import evaluate_fdrc_episode, summarize_fdrc
 
 
 def test_blocking_set_contains_real_failures():
@@ -159,3 +159,34 @@ def test_argument_match_normalized_vacuous_when_tool_never_called():
         [{"tool": "set_mode", "args": {"mode": "sport"}}], []
     )
     assert not tool_calls_covered([{"tool": "set_mode", "args": {"mode": "sport"}}], [])
+
+
+def _completed_row(operational_pass: int, strict_pass: int):
+    return {
+        "benchmark_track": "full_duplex_repair_to_commit",
+        "fdrc_validity": {"valid": True},
+        "scores": {
+            "final_pass": strict_pass,
+            "operational_final_pass": operational_pass,
+            "operational_state_match": 1,
+            "operational_tool_match": 1,
+            "operational_argument_match": 1,
+            "operational_correction_uptaken": 1,
+            "state_match": strict_pass,
+            "tool_exact_match": strict_pass,
+            "argument_exact_match": strict_pass,
+        },
+        "failure_types": [],
+        "repair": {},
+        "latency": {},
+    }
+
+
+def test_summarize_emits_operational_keys_and_monotonic():
+    rows = [_completed_row(1, 0), _completed_row(1, 1), _completed_row(0, 0)]
+    metrics = summarize_fdrc(rows)
+    assert metrics["operational_fdrc_pass_at_1"] == 2 / 3
+    assert metrics["raw_fdrc_pass_at_1"] == 1 / 3
+    assert metrics["operational_fdrc_pass_at_1"] >= metrics["raw_fdrc_pass_at_1"]
+    assert "operational_state_match" in metrics
+    assert "operational_correction_uptake_rate" in metrics

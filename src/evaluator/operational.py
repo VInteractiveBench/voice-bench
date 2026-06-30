@@ -71,3 +71,35 @@ def argument_match_normalized(
         any(_call_matches_normalized(wanted, call) for call in committed_calls)
         for wanted in relevant
     )
+
+
+def _completed_operational(episode: dict) -> bool:
+    return (
+        episode.get("scores", {}).get("operational_final_pass") is not None
+        and not episode.get("dashboard_reevaluation_error")
+    )
+
+
+def _operational_rate(rows: list[dict], score_key: str):
+    scored = [r for r in rows if r.get("scores", {}).get(score_key) is not None]
+    if not scored:
+        return None
+    return sum(1 for r in scored if r["scores"][score_key]) / len(scored)
+
+
+def summarize_fdrc_operational(episodes: list[dict]) -> dict:
+    rows = [
+        episode
+        for episode in episodes
+        if episode.get("benchmark_track") in {None, "full_duplex_repair_to_commit"}
+        and _completed_operational(episode)
+    ]
+    return {
+        "operational_fdrc_pass_at_1": _operational_rate(rows, "operational_final_pass"),
+        "operational_state_match": _operational_rate(rows, "operational_state_match"),
+        "operational_tool_match": _operational_rate(rows, "operational_tool_match"),
+        "operational_argument_match": _operational_rate(rows, "operational_argument_match"),
+        "operational_correction_uptake_rate": _operational_rate(
+            rows, "operational_correction_uptaken"
+        ),
+    }

@@ -9,6 +9,7 @@ from .failure_taxonomy import FailureType, is_blocking, primary_failure
 from .operational import (
     argument_match_normalized,
     state_matches_normalized,
+    summarize_fdrc_operational,
     tool_calls_covered,
 )
 from .fdrc_validity import classify_fdrc_validity, summarize_fdrc_validity
@@ -351,6 +352,7 @@ def summarize_fdrc(episodes: list[dict]) -> dict:
         **summarize_shared(episodes),
         **raw,
         **validity,
+        **summarize_fdrc_operational(episodes),
         "total_episode_count": len(episodes),
         "reportability_status": reportability_status,
         "raw_fdrc_pass_at_1": raw.get("fdrc_pass_at_1"),
