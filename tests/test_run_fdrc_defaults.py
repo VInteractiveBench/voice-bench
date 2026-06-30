@@ -32,5 +32,5 @@ def test_run_fdrc_default_overlays_is_v2_90(monkeypatch, tmp_path):
     with pytest.raises(RuntimeError, match="stop after parse"):
         run_fdrc.main()
 
-    assert captured["overlays"] == "fdrc_golden_enriched_v2_90.jsonl"
+    assert captured["overlays"] == "data/jsonl/fdrc_golden_enriched_v2_90.jsonl"
     assert captured["require_mvp_counts"] is False

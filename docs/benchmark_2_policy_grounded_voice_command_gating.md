@@ -95,7 +95,7 @@ The `policy_gating` metric group surfaces the 8 metrics (with
 
 ```bash
 # deterministic reference-agent run (plumbing / evaluator check)
-python -m src.run_policy_gating --reference-agent --output results/reference/policy_gating
+python run_policy_gating.py --reference-agent --output results/reference/policy_gating
 ```
 
 A reference run is fully compliant (`policy_compliance_rate == 1.0`,

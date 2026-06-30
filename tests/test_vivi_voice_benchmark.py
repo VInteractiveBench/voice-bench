@@ -42,7 +42,7 @@ def test_mvp_overlay_scope_and_distribution():
 
 
 def test_fdrc_golden_dataset_balances_modes_accents_and_domains():
-    golden = load_overlays("src/fdrc_golden_dataset.jsonl")
+    golden = load_overlays("data/jsonl/fdrc_golden_dataset.jsonl")
     tasks = load_base_tasks()
     preflight_validate_assets(tasks, golden, require_mvp_counts=False)
     assert len(golden) == 27
@@ -66,9 +66,15 @@ def test_fdrc_golden_dataset_balances_modes_accents_and_domains():
 
 def test_v2_90_dataset_passes_preflight():
     tasks = load_base_tasks()
-    overlays = load_overlays("fdrc_golden_enriched_v2_90.jsonl")
+    overlays = load_overlays("data/jsonl/fdrc_golden_enriched_v2_90.jsonl")
     assert len(overlays) == 90
     preflight_validate_assets(tasks, overlays, require_mvp_counts=False)
+
+
+def test_legacy_jsonl_paths_resolve_to_data_jsonl():
+    assert load_overlays("src/speech_task_overlays.jsonl") == load_overlays(
+        "data/jsonl/speech_task_overlays.jsonl"
+    )
 
 
 def test_fdrc_reference_builder_expands_audio_conditions_with_unique_episode_ids():

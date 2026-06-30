@@ -8,7 +8,9 @@ dumps/
 dump.rdb
 *.rdg
 logs/
-
+data/*
+!data/jsonl/
+!data/jsonl/*.jsonl
 /.claude
 .ruff_cache
 /docs/superpowers/

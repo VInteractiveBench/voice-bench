@@ -56,7 +56,7 @@ Sáu official tools nằm ngoài MVP là `weather`, `news_search`, `web_search`,
 |---|---|
 | `speech_interaction/` | Benchmark surface chính: assets, schemas, adapters, evaluator, audio pipeline, dashboard. |
 | `speech_interaction/base_task_manifest.json` | Manifest 30 logical tasks, tham chiếu domain task source. |
-| `speech_interaction/speech_task_overlays.jsonl` | 60 speech overlays: utterance, persona/audio condition, critical slots, FDRC timeline. |
+| `data/jsonl/speech_task_overlays.jsonl` | 60 speech overlays: utterance, persona/audio condition, critical slots, FDRC timeline. |
 | `speech_interaction/evaluator/` | Deterministic evaluators cho policy gating, FDRC, tool schema, tool scope, critical slots, voice events. |
 | `speech_interaction/orchestrator/` | Runtime orchestration: provider adapter, audio streaming, tool server, event normalization. |
 | `speech_interaction/audio/` | TTS, audio cache, PCM conversion, noise mixing. |

@@ -5,12 +5,26 @@ from pathlib import Path
 from typing import Any, Iterable
 
 ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = ROOT.parent
+JSONL_DATA_ROOT = PROJECT_ROOT / "data" / "jsonl"
+
+LEGACY_JSONL_PATHS = {
+    Path("fdrc_golden_enriched_v2_90.jsonl"): JSONL_DATA_ROOT / "fdrc_golden_enriched_v2_90.jsonl",
+    Path("src/fdrc_golden_dataset.jsonl"): JSONL_DATA_ROOT / "fdrc_golden_dataset.jsonl",
+    Path("src/speech_task_overlays.jsonl"): JSONL_DATA_ROOT / "speech_task_overlays.jsonl",
+}
 
 
 def resolve_asset_path(path: str | Path) -> Path:
     target = Path(path)
     if target.exists():
         return target
+    legacy_candidate = LEGACY_JSONL_PATHS.get(Path(*target.parts))
+    if legacy_candidate is not None and legacy_candidate.exists():
+        return legacy_candidate
+    jsonl_candidate = JSONL_DATA_ROOT / target.name
+    if target.suffix == ".jsonl" and jsonl_candidate.exists():
+        return jsonl_candidate
     parts = target.parts
     if parts and parts[0] == "src":
         candidate = ROOT.joinpath(*parts[1:])
@@ -53,7 +67,7 @@ def load_base_tasks(path: str | Path = ROOT / "base_task_manifest.json") -> dict
     return {task["id"]: task for task in read_json(path)}
 
 
-def load_overlays(path: str | Path = ROOT / "speech_task_overlays.jsonl") -> list[dict]:
+def load_overlays(path: str | Path = JSONL_DATA_ROOT / "speech_task_overlays.jsonl") -> list[dict]:
     return read_jsonl(path)
 
 

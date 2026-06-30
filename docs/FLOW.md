@@ -73,7 +73,7 @@ flowchart LR
     C[data/domains/*/db.json] --> D
 
     D --> E[speech_interaction/base_task_manifest.json]
-    E --> F[speech_interaction/speech_task_overlays.jsonl]
+    E --> F[data/jsonl/speech_task_overlays.jsonl]
 
     G[speech_interaction/personas/*.yaml] --> H[Persona dimensions]
     I[speech_interaction/audio_conditions/*.yaml] --> J[Audio conditions]
@@ -94,7 +94,7 @@ flowchart LR
 | `policy.md` | Domain policy boundary. | Policy violations reduce `policy_pass` and `final_pass`. |
 | `db.json` | Domain state fixture. | Used through task/tool execution semantics and final state comparison. |
 | `base_task_manifest.json` | Normalized index over selected benchmark tasks. | Binds speech overlays to canonical logical tasks. |
-| `speech_task_overlays.jsonl` | Speech utterance, critical slots, audio mode, repair intent, forbidden/expected calls. | Supplies voice assertions and overlay-specific expected outcomes. |
+| `data/jsonl/speech_task_overlays.jsonl` | Speech utterance, critical slots, audio mode, repair intent, forbidden/expected calls. | Supplies voice assertions and overlay-specific expected outcomes. |
 | `audio_conditions/*.yaml` | Clean, cabin noise, interaction stress. | Controls audio generation/mixing for realtime surrogate runs. |
 | `full_duplex_timelines/*.json` | Timestamped interaction events. | Enables deterministic yield and commit-timing evaluation. |
 
@@ -298,4 +298,3 @@ flowchart LR
 | Latency | FDRC uses fixed 200 ms ticks and logs `t_ms` on tool calls and voice events. | Keep tick granularity fixed for comparability; report wall-clock latency separately from benchmark timing if realtime API jitter becomes material. |
 | Cost-to-serve | `reference-agent` validates plumbing without paid model calls; OpenAI surrogate requires API calls and TTS/audio cache. | Use `reference-agent` in CI, reserve `--agent openai_realtime` for smoke/regression runs, and evaluate production Vivi logs offline whenever available. |
 | Evaluation validity | `final_pass` is strict and failure taxonomy is explicit. | Avoid reporting ASR-style metrics as primary KPIs; keep task correctness, tool safety, and repair-to-commit behavior as the benchmark’s authoritative product metrics. |
-

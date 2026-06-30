@@ -16,7 +16,7 @@ behavior, and suppression of superseded intent.
 `base_task_manifest.json` is a normalized index over logical domain tasks. Automotive
 entries reference the existing `data/tau2/domains/automotive/tasks.json`; navigation and
 media_phone entries reference their domain-owned task files in the same canonical tau2 data
-tree. `speech_task_overlays.jsonl` owns only speech-specific conditions and repair timelines.
+tree. `data/jsonl/speech_task_overlays.jsonl` owns only speech-specific conditions and repair timelines.
 
 ## Run
 
