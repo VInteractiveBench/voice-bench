@@ -198,9 +198,53 @@ def test_summarize_emits_operational_keys_and_monotonic():
     assert "operational_correction_uptake_rate" in metrics
 
 
+def test_headline_pass_is_operational_on_valid_subset_when_reportable():
+    # All rows valid => reportable; headline mirrors operational pass on valid subset.
+    rows = [_completed_row(1, 0), _completed_row(1, 1), _completed_row(0, 0)]
+    metrics = summarize_fdrc(rows)
+    assert metrics["headline_fdrc_pass_at_1"] == 2 / 3
+    # Alias mirrors the headline value.
+    assert metrics["performance_operational_fdrc_pass_at_1"] == 2 / 3
+    # Headline (operational) is the lenient/fair number and must be >= strict gate.
+    assert metrics["headline_fdrc_pass_at_1"] >= (metrics["performance_fdrc_pass_at_1"] or 0)
+
+
+def test_headline_pass_gated_off_when_not_reportable():
+    # One valid + many invalid => validity < 0.70 => NOT_REPORTABLE => headline None.
+    valid = _completed_row(1, 1)
+    invalid = {**_completed_row(0, 0), "fdrc_validity": {"valid": False}}
+    metrics = summarize_fdrc([valid, invalid, invalid, invalid])
+    assert metrics["reportability_status"] == "NOT_REPORTABLE"
+    assert metrics["headline_fdrc_pass_at_1"] is None
+    assert metrics["performance_operational_fdrc_pass_at_1"] is None
+
+
+def test_performance_yield_latency_uses_observed_latency_when_no_real_bargein():
+    rows = []
+    for latency_ms in [100, 300, 900]:
+        row = _completed_row(0, 0)
+        row["latency"] = {
+            "yield_latency_ms": latency_ms,
+            "yield_applicable": False,
+            "yield_threshold_ms": 700,
+        }
+        rows.append(row)
+
+    metrics = summarize_fdrc(rows)
+
+    assert metrics["yield_applicable_count"] == 0
+    assert metrics["yield_latency_p50_ms"] == 300.0
+    assert metrics["yield_latency_p95_ms"] == 900.0
+    assert metrics["yield_latency_pass_rate"] == 2 / 3
+    assert metrics["performance_yield_latency_p50_ms"] == 300.0
+    assert metrics["performance_yield_latency_p95_ms"] == 900.0
+    assert metrics["performance_yield_latency_pass_rate"] == 2 / 3
+
+
 def test_operational_metrics_registered_and_in_fdrc_track():
     registry = dashboard_service.METRIC_REGISTRY
     for key in [
+        "headline_fdrc_pass_at_1",
         "operational_fdrc_pass_at_1",
         "operational_state_match",
         "operational_tool_match",
@@ -210,7 +254,13 @@ def test_operational_metrics_registered_and_in_fdrc_track():
         assert key in registry, f"{key} missing from METRIC_REGISTRY"
 
     fdrc_track = next(t for t in dashboard_service.METRIC_GROUPS if t["id"] == "fdrc")
-    assert "operational_fdrc_pass_at_1" in fdrc_track["metric_keys"]
+    keys = fdrc_track["metric_keys"]
+    # Single consolidated operational pass card ("Điểm Tổng Đạt FDRC") is the first card;
+    # the strict/headline/raw duplicates are no longer displayed.
+    assert keys[0] == "operational_fdrc_pass_at_1"
+    assert "performance_fdrc_pass_at_1" not in keys
+    assert "headline_fdrc_pass_at_1" not in keys
+    assert "raw_fdrc_pass_at_1" not in keys
 
 
 RESULTS = Path(__file__).resolve().parents[1] / "results"

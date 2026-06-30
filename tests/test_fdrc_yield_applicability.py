@@ -57,7 +57,7 @@ def test_real_bargein_with_slow_yield_still_fails_yield():
     assert result["repair"]["assistant_speaking_before_interrupt"] is True
 
 
-def test_contract_reports_yield_over_applicable_rows_only():
+def test_contract_reports_observed_yield_latency_even_when_not_applicable():
     from src.evaluator.fdrc_contract import summarize_fdrc_contract
 
     def row(applicable, yld, fail):
@@ -65,7 +65,11 @@ def test_contract_reports_yield_over_applicable_rows_only():
             "benchmark_track": "full_duplex_repair_to_commit",
             "scores": {"final_pass": 0, "state_match": 0},
             "repair": {"final_intent": "drive_system"},
-            "latency": {"yield_latency_ms": yld, "yield_applicable": applicable},
+            "latency": {
+                "yield_latency_ms": yld,
+                "yield_applicable": applicable,
+                "yield_threshold_ms": 700,
+            },
             "failure_types": (["YIELD_LATENCY_TOO_HIGH"] if fail else []),
         }
 
@@ -77,6 +81,7 @@ def test_contract_reports_yield_over_applicable_rows_only():
     ]
     m = summarize_fdrc_contract(rows)
     assert m["yield_applicable_count"] == 2
-    assert m["yield_latency_p95_ms"] == 1200.0
-    # pass-rate over applicable rows only: 1 of 2 passed
-    assert m["yield_latency_pass_rate"] == 0.5
+    assert m["yield_latency_p50_ms"] == 2296.0
+    assert m["yield_latency_p95_ms"] == 5401.0
+    # pass-rate over observed latency rows: only the 650 ms episode passes.
+    assert m["yield_latency_pass_rate"] == 0.25

@@ -1,0 +1,41 @@
+{
+  "run_id": "fdrc_gemini_full_sim",
+  "run_kind": "provider",
+  "created_at": "2026-06-26T05:39:37.250264+00:00",
+  "benchmark": "full_duplex_repair_to_commit",
+  "benchmark_track": "full_duplex_repair_to_commit",
+  "providers": [
+    "google"
+  ],
+  "models": [
+    "gemini-2.5-flash-native-audio-latest"
+  ],
+  "adapters": [
+    "gemini_live"
+  ],
+  "fdrc_yield_modes": [
+    "native_yield"
+  ],
+  "tick_ms": 200,
+  "episode_set_hash": "f8b270b7d299835cb0518a0078daf49e823ac53975dec4d13c9ed6b11917d50b",
+  "overlay_hash": "d96d5c12240595fdc475e7c9c90ad57c6f17e81d4ac8a7d4e2c85e535348cde7",
+  "persona_hash": "faeddd0af22e9c83be2fbf7dfd95dd3f79e2e8e6187c38359a14914cd19cf7ca",
+  "domains": [
+    "automotive",
+    "media_phone",
+    "navigation"
+  ],
+  "personas": [
+    "vi_central_normal",
+    "vi_north_normal",
+    "vi_south_normal"
+  ],
+  "audio_conditions": [
+    "interaction_stress"
+  ],
+  "episode_count": 90,
+  "provider_episode_count": 90,
+  "reference_episode_count": 0,
+  "is_reference": false,
+  "mixed_track": false
+}

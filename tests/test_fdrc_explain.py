@@ -58,10 +58,11 @@ def test_explain_value_matches_contract_for_every_supported_key():
     contract = summarize_fdrc_contract(episodes)
     for key in SUPPORTED_EXPLAIN_KEYS:
         if key in {"performance_fdrc_pass_at_1", "raw_fdrc_pass_at_1",
+                   "headline_fdrc_pass_at_1", "performance_operational_fdrc_pass_at_1",
                    "performance_yield_latency_pass_rate",
                    "performance_yield_latency_p50_ms", "performance_yield_latency_p95_ms",
                    "valid_episode_count", "invalid_episode_count", "fdrc_validity_rate"}:
-            continue  # performance/raw have no contract counterpart; validity trio checked vs summarize_fdrc_validity below
+            continue  # performance/raw/headline (operational) have no contract counterpart; validity trio checked vs summarize_fdrc_validity below
         result = explain_fdrc_metric(key, episodes)
         assert result is not None and result["supported"], key
         expected = contract.get(key)
@@ -109,6 +110,7 @@ def test_explain_supports_performance_yield_latency_pass_rate():
         _episode(episode_id="valid_ok"),
         _episode(
             episode_id="valid_slow",
+            latency={"yield_latency_ms": 900, "yield_threshold_ms": 700},
             failure_types=["YIELD_LATENCY_TOO_HIGH"],
         ),
         _episode(

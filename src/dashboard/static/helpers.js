@@ -182,7 +182,7 @@
         "Reference/sample/internal run — chỉ dùng debug, KHÔNG báo cáo như performance thật.";
     }
 
-    if (status && /fail|invalid|not_report/i.test(String(status))) {
+    if (status && /invalid|partial|not_report/i.test(String(status))) {
       tone = "fail";
       label = "NOT REPORTABLE";
       note = warning || "Contract chưa hợp lệ — không báo cáo performance.";

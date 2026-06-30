@@ -1,0 +1,175 @@
+{
+  "pass_at_1": 0.12222222222222222,
+  "tool_exact_match": 0.2,
+  "argument_exact_match": 0.2,
+  "state_match": 0.35555555555555557,
+  "policy_violation_rate": 0.16666666666666666,
+  "tool_validation_error_rate": 0.5222222222222223,
+  "out_of_scope_tool_call_rate": 0.0,
+  "hallucinated_tool_rate": 0.0,
+  "episode_count": 90,
+  "completed_episode_count": 90,
+  "partial_episode_count": 0,
+  "fdrc_pass_at_1": 0.12222222222222222,
+  "yield_latency_p50_ms": 379.0,
+  "yield_latency_p95_ms": 6600.0,
+  "yield_latency_pass_rate": 0.675,
+  "yield_applicable_count": 40,
+  "yield_applicable_rate": 0.4444444444444444,
+  "old_intent_suppression_rate": 0.9090909090909091,
+  "forbidden_tool_call_rate": 0.09090909090909091,
+  "correction_uptake_rate": 0.5454545454545454,
+  "cancel_success_rate": 0.5714285714285714,
+  "metric_contract": {
+    "benchmark_track": "full_duplex_repair_to_commit",
+    "required_metrics": [
+      "episode_count",
+      "completed_episode_count",
+      "partial_episode_count",
+      "fdrc_pass_at_1",
+      "pass_at_1",
+      "policy_violation_rate",
+      "state_match",
+      "tool_validation_error_rate",
+      "old_intent_suppression_rate",
+      "forbidden_tool_call_rate",
+      "correction_uptake_rate"
+    ],
+    "nullable_metrics": {
+      "cancel_success_rate": "no_cancel_cases",
+      "yield_latency_p50_ms": "no_applicable_yield_cases",
+      "yield_latency_p95_ms": "no_applicable_yield_cases",
+      "yield_latency_pass_rate": "no_applicable_yield_cases"
+    },
+    "denominators": {
+      "episode_count": 1,
+      "completed_episode_count": 90,
+      "partial_episode_count": 90,
+      "fdrc_pass_at_1": 90,
+      "pass_at_1": 90,
+      "yield_latency_p50_ms": 90,
+      "yield_latency_p95_ms": 90,
+      "yield_latency_pass_rate": 90,
+      "yield_applicable_count": 90,
+      "yield_applicable_rate": 90,
+      "policy_violation_rate": 90,
+      "state_match": 90,
+      "tool_validation_error_rate": 90,
+      "old_intent_suppression_rate": 44,
+      "forbidden_tool_call_rate": 44,
+      "correction_uptake_rate": 44,
+      "cancel_success_rate": 14
+    },
+    "null_reasons": {},
+    "violations": [],
+    "benchmark_status": "failed_evaluated"
+  },
+  "valid_episode_count": 39,
+  "invalid_episode_count": 51,
+  "fdrc_validity_rate": 0.43333333333333335,
+  "validity_failure_counts": [
+    {
+      "key": "INVALID_UNKNOWN",
+      "count": 46
+    },
+    {
+      "key": "INVALID_EVIDENCE",
+      "count": 5
+    }
+  ],
+  "total_episode_count": 90,
+  "reportability_status": "NOT_REPORTABLE",
+  "raw_fdrc_pass_at_1": 0.12222222222222222,
+  "performance_fdrc_pass_at_1": null,
+  "performance_yield_latency_p50_ms": null,
+  "performance_yield_latency_p95_ms": null,
+  "performance_yield_latency_pass_rate": null,
+  "performance_metric_contract": {
+    "benchmark_track": "full_duplex_repair_to_commit",
+    "required_metrics": [
+      "episode_count",
+      "completed_episode_count",
+      "partial_episode_count",
+      "fdrc_pass_at_1",
+      "pass_at_1",
+      "policy_violation_rate",
+      "state_match",
+      "tool_validation_error_rate",
+      "old_intent_suppression_rate",
+      "forbidden_tool_call_rate",
+      "correction_uptake_rate"
+    ],
+    "nullable_metrics": {
+      "cancel_success_rate": "no_cancel_cases",
+      "yield_latency_p50_ms": "no_applicable_yield_cases",
+      "yield_latency_p95_ms": "no_applicable_yield_cases",
+      "yield_latency_pass_rate": "no_applicable_yield_cases"
+    },
+    "denominators": {
+      "episode_count": 1,
+      "completed_episode_count": 39,
+      "partial_episode_count": 39,
+      "fdrc_pass_at_1": 39,
+      "pass_at_1": 39,
+      "yield_latency_p50_ms": 39,
+      "yield_latency_p95_ms": 39,
+      "yield_latency_pass_rate": 39,
+      "yield_applicable_count": 39,
+      "yield_applicable_rate": 39,
+      "policy_violation_rate": 39,
+      "state_match": 39,
+      "tool_validation_error_rate": 39,
+      "old_intent_suppression_rate": 39,
+      "forbidden_tool_call_rate": 39,
+      "correction_uptake_rate": 39,
+      "cancel_success_rate": 12
+    },
+    "null_reasons": {},
+    "violations": [],
+    "benchmark_status": "failed_evaluated"
+  },
+  "benchmark_track": "full_duplex_repair_to_commit",
+  "episode_set_hash": "d90ea501f0fc83442769ea5ae5a16f1c5933e52e0d439b5947343eeb11f08a0b",
+  "run_metadata": {
+    "run_id": "fdrc_openai_v2_90",
+    "run_kind": "provider",
+    "created_at": "2026-06-26T09:48:31.501867+00:00",
+    "benchmark": "full_duplex_repair_to_commit",
+    "benchmark_track": "full_duplex_repair_to_commit",
+    "providers": [
+      "openai"
+    ],
+    "models": [
+      "gpt-realtime-mini"
+    ],
+    "adapters": [
+      "openai_realtime"
+    ],
+    "fdrc_yield_modes": [
+      "native_yield"
+    ],
+    "tick_ms": 200,
+    "episode_set_hash": "d90ea501f0fc83442769ea5ae5a16f1c5933e52e0d439b5947343eeb11f08a0b",
+    "overlay_hash": "9e9b9f8048a78837e670e9f71ef3b823b65e3d95ab3831f2ae64cd71ec5d4e74",
+    "persona_hash": "faeddd0af22e9c83be2fbf7dfd95dd3f79e2e8e6187c38359a14914cd19cf7ca",
+    "domains": [
+      "automotive",
+      "media_phone",
+      "navigation"
+    ],
+    "personas": [
+      "vi_central_normal",
+      "vi_north_normal",
+      "vi_south_normal"
+    ],
+    "audio_conditions": [
+      "interaction_stress"
+    ],
+    "episode_count": 90,
+    "provider_episode_count": 90,
+    "reference_episode_count": 0,
+    "is_reference": false,
+    "mixed_track": false
+  },
+  "metadata_hash": "0373c67550484e28768b966cc8ffb212b3a834908919fa2ea094a449b48484ee"
+}

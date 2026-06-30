@@ -1,5 +1,7 @@
 # Full-Duplex Repair-to-Commit Runbook
 
+> **Canonical golden set:** `data/jsonl/fdrc_golden_enriched_v2_90.jsonl` (namespace `fdrc_v2_*`, 90 overlays) is the single canonical FDRC dataset and the default `--overlays` for `run_fdrc.py`. The Tier tables below describe the legacy 30-overlay MVP set in `speech_task_overlays.jsonl` (`fdrc_vehicle_*`); pass `--overlays data/jsonl/speech_task_overlays.jsonl` to reproduce them. Policy-gating uses the `pg_*` ids in `speech_task_overlays.jsonl`. See the README "Golden Datasets" table for the full namespace map.
+
 ## Benchmark Tiers
 
 | Tier | Purpose | Scope | Performance report |

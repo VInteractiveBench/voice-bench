@@ -31,6 +31,24 @@ t("reportability: provider => REPORTABLE", () => {
   assert.strictEqual(r.tone, "pass");
   assert.strictEqual(r.label, "REPORTABLE");
 });
+t("reportability: failed_evaluated provider is still REPORTABLE", () => {
+  const r = VB.deriveReportability({
+    data_provenance: "provider",
+    metrics_hash_valid: true,
+    metric_contract: { benchmark_status: "failed_evaluated" },
+  });
+  assert.strictEqual(r.tone, "pass");
+  assert.strictEqual(r.label, "REPORTABLE");
+});
+t("reportability: invalid contract is NOT REPORTABLE", () => {
+  const r = VB.deriveReportability({
+    data_provenance: "provider",
+    metrics_hash_valid: true,
+    metric_contract: { benchmark_status: "invalid" },
+  });
+  assert.strictEqual(r.tone, "fail");
+  assert.strictEqual(r.label, "NOT REPORTABLE");
+});
 t("reportability: reference => VALIDITY ONLY", () => {
   const r = VB.deriveReportability({ data_provenance: "reference", metrics_hash_valid: true });
   assert.strictEqual(r.tone, "warn");

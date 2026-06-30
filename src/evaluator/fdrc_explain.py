@@ -3,7 +3,12 @@ from __future__ import annotations
 from statistics import median
 from typing import Any, Callable
 
-from .fdrc_contract import _cancel_respected, _completed, _failure_values
+from .fdrc_contract import (
+    _cancel_respected,
+    _completed,
+    _failure_values,
+    yield_latency_passed,
+)
 
 FDRC_TRACK = "full_duplex_repair_to_commit"
 
@@ -210,41 +215,57 @@ _EXPLAIN_SPECS: dict[str, dict[str, Any]] = {
         ],
         "explorer_filter": {"validity": "valid", "passed": "false"},
     },
+    "headline_fdrc_pass_at_1": {
+        "scope": "valid",
+        "row_set": _scored(_completed_rows, "operational_final_pass"),
+        "predicate": lambda e: bool(e.get("scores", {}).get("operational_final_pass")),
+        "unit": "rate",
+        "formula_vi": "headline pass = operational_final_pass=true ÷ episode hợp lệ hoàn tất có chấm operational_final_pass",
+        "row_set_label_vi": "Episode hợp lệ & hoàn tất có điểm operational_final_pass",
+        "numerator_label_vi": "Episode đạt ở tầng operational (operational_final_pass = true)",
+        "denominator_condition_vi": "Chỉ tính episode có fdrc_validity.valid=true, completed và có scores.operational_final_pass khác null.",
+        "pass_condition_vi": "scores.operational_final_pass=true: fdrc_validity hợp lệ và không còn lỗi BLOCKING sau khi nới khớp state/tool/arg đã chuẩn hóa.",
+        "evaluation_checks_vi": [
+            "fdrc_validity.valid",
+            "scores.operational_final_pass",
+            "scores.operational_state_match",
+            "scores.operational_correction_uptaken",
+            "failure_types",
+        ],
+        "explorer_filter": {"validity": "valid"},
+    },
     "yield_latency_pass_rate": {
         "scope": "all",
-        "row_set": _applicable_rows,
-        "predicate": lambda e: "YIELD_LATENCY_TOO_HIGH" not in _failure_values(e),
+        "row_set": _latency_rows,
+        "predicate": yield_latency_passed,
         "unit": "rate",
-        "formula_vi": "yield pass = episode barge-in thực sự KHÔNG bị YIELD_LATENCY_TOO_HIGH ÷ episode có barge-in thực sự",
-        "row_set_label_vi": "Episode có barge-in thực sự (yield_applicable=true)",
-        "numerator_label_vi": "Episode yield đúng hạn (không có YIELD_LATENCY_TOO_HIGH)",
-        "denominator_condition_vi": "Chỉ tính episode có latency.yield_applicable=true (assistant đang nói khi bị ngắt).",
-        "pass_condition_vi": "failure_types không chứa YIELD_LATENCY_TOO_HIGH.",
+        "formula_vi": "yield pass = episode có yield_latency_ms và latency <= ngưỡng yield ÷ episode có yield_latency_ms",
+        "row_set_label_vi": "Episode có latency.yield_latency_ms quan sát được",
+        "numerator_label_vi": "Episode yield đúng hạn theo ngưỡng latency",
+        "denominator_condition_vi": "Chỉ tính episode có latency.yield_latency_ms là số.",
+        "pass_condition_vi": "latency.yield_latency_ms <= latency.yield_threshold_ms; nếu thiếu threshold thì mặc định 700 ms.",
         "evaluation_checks_vi": [
-            "latency.yield_applicable",
             "voice_events.user_interrupt_start",
             "voice_events.assistant_speech_stop",
             "latency.yield_latency_ms",
-            "failure_types",
+            "latency.yield_threshold_ms",
         ],
         "explorer_filter": {"failure": "YIELD_LATENCY_TOO_HIGH"},
     },
     "performance_yield_latency_pass_rate": {
         "scope": "valid",
-        "row_set": _completed_rows,
-        "predicate": lambda e: "YIELD_LATENCY_TOO_HIGH" not in _failure_values(e),
+        "row_set": _latency_rows,
+        "predicate": yield_latency_passed,
         "unit": "rate",
-        "formula_vi": "performance yield pass = episode hợp lệ KHÔNG bị YIELD_LATENCY_TOO_HIGH ÷ episode hợp lệ hoàn tất",
-        "row_set_label_vi": "Episode FDRC hợp lệ và hoàn tất",
-        "numerator_label_vi": "Episode hợp lệ nhường lời đúng hạn",
-        "denominator_condition_vi": "Chỉ tính episode có fdrc_validity.valid=true và evaluator có thể xác định final_pass.",
-        "pass_condition_vi": "failure_types không chứa YIELD_LATENCY_TOO_HIGH trong tập episode hợp lệ.",
+        "formula_vi": "performance yield pass = episode hợp lệ có yield_latency_ms và latency <= ngưỡng yield ÷ episode hợp lệ có yield_latency_ms",
+        "row_set_label_vi": "Episode FDRC hợp lệ có latency.yield_latency_ms",
+        "numerator_label_vi": "Episode hợp lệ yield đúng hạn theo ngưỡng latency",
+        "denominator_condition_vi": "Chỉ tính episode có fdrc_validity.valid=true và latency.yield_latency_ms là số.",
+        "pass_condition_vi": "latency.yield_latency_ms <= latency.yield_threshold_ms; nếu thiếu threshold thì mặc định 700 ms.",
         "evaluation_checks_vi": [
             "fdrc_validity.valid",
-            "voice_events.user_interrupt_start",
-            "voice_events.assistant_speech_stop",
             "latency.yield_latency_ms",
-            "failure_types",
+            "latency.yield_threshold_ms",
         ],
         "explorer_filter": {"validity": "valid", "failure": "YIELD_LATENCY_TOO_HIGH"},
     },
@@ -432,17 +453,16 @@ _EXPLAIN_SPECS: dict[str, dict[str, Any]] = {
     },
     "yield_latency_p50_ms": {
         "scope": "all",
-        "row_set": _applicable_rows,
+        "row_set": _latency_rows,
         "special": "latency_percentile",
         "percentile": 0.50,
         "unit": "ms",
-        "formula_vi": "P50 yield latency = median của latency.yield_latency_ms trên episode có barge-in thực sự sau khi sắp xếp tăng dần",
-        "row_set_label_vi": "Episode có barge-in thực sự (yield_applicable=true)",
+        "formula_vi": "P50 yield latency = median của latency.yield_latency_ms trên episode có latency quan sát được sau khi sắp xếp tăng dần",
+        "row_set_label_vi": "Episode có latency.yield_latency_ms quan sát được",
         "numerator_label_vi": "Giá trị median được chọn",
-        "denominator_condition_vi": "Chỉ tính episode có latency.yield_applicable=true.",
+        "denominator_condition_vi": "Chỉ tính episode có latency.yield_latency_ms là số.",
         "pass_condition_vi": "Không có tử số boolean; metric lấy median của phân phối yield latency.",
         "evaluation_checks_vi": [
-            "latency.yield_applicable",
             "voice_events.user_interrupt_start",
             "voice_events.assistant_speech_stop",
             "latency.yield_latency_ms",
@@ -451,17 +471,16 @@ _EXPLAIN_SPECS: dict[str, dict[str, Any]] = {
     },
     "yield_latency_p95_ms": {
         "scope": "all",
-        "row_set": _applicable_rows,
+        "row_set": _latency_rows,
         "special": "latency_percentile",
         "percentile": 0.95,
         "unit": "ms",
-        "formula_vi": "P95 yield latency = latency tại index round((n - 1) × 0.95) trên episode có barge-in thực sự sau khi sắp xếp tăng dần",
-        "row_set_label_vi": "Episode có barge-in thực sự (yield_applicable=true)",
+        "formula_vi": "P95 yield latency = latency tại index round((n - 1) × 0.95) trên episode có latency quan sát được sau khi sắp xếp tăng dần",
+        "row_set_label_vi": "Episode có latency.yield_latency_ms quan sát được",
         "numerator_label_vi": "Giá trị percentile được chọn",
-        "denominator_condition_vi": "Chỉ tính episode có latency.yield_applicable=true.",
+        "denominator_condition_vi": "Chỉ tính episode có latency.yield_latency_ms là số.",
         "pass_condition_vi": "Không có tử số boolean; metric lấy phân vị 95 của phân phối yield latency.",
         "evaluation_checks_vi": [
-            "latency.yield_applicable",
             "voice_events.user_interrupt_start",
             "voice_events.assistant_speech_stop",
             "latency.yield_latency_ms",
@@ -506,6 +525,10 @@ _EXPLAIN_SPECS: dict[str, dict[str, Any]] = {
 
 # pass_at_1 is an alias of fdrc_pass_at_1
 _EXPLAIN_SPECS["pass_at_1"] = _EXPLAIN_SPECS["fdrc_pass_at_1"]
+# performance_operational_fdrc_pass_at_1 is an alias of the headline metric
+_EXPLAIN_SPECS["performance_operational_fdrc_pass_at_1"] = _EXPLAIN_SPECS[
+    "headline_fdrc_pass_at_1"
+]
 
 SUPPORTED_EXPLAIN_KEYS = tuple(_EXPLAIN_SPECS.keys())
 

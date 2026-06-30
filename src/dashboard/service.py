@@ -145,17 +145,16 @@ METRIC_GROUPS = [
         "id": "fdrc",
         "label": "Sửa lệnh full-duplex",
         "metric_keys": [
-            "performance_fdrc_pass_at_1",
+            # Single FDRC pass score (operational tier — the fair model-quality number).
             "operational_fdrc_pass_at_1",
             "operational_state_match",
             "operational_tool_match",
             "operational_argument_match",
             "operational_correction_uptake_rate",
             "fdrc_validity_rate",
-            "raw_fdrc_pass_at_1",
             "valid_episode_count",
             "invalid_episode_count",
-            "correction_uptake_rate",
+            "infra_error_count",
             "old_intent_suppression_rate",
             "forbidden_tool_call_rate",
             "cancel_success_rate",
@@ -208,18 +207,22 @@ METRIC_REGISTRY = {
     "response_honesty_rate": ("Phản hồi trung thực", "Tỷ lệ phản hồi nhất quán với tool execution thực tế.", "rate", "policy_gating"),
     "tool_argument_accuracy": ("Đúng argument tool", "Tỷ lệ argument tool đúng trên các execute case.", "rate", "policy_gating"),
     "fdrc_pass_at_1": ("Đạt FDRC", "Tỷ lệ episode FDRC đạt toàn bộ tiêu chí.", "rate", "fdrc"),
-    "performance_fdrc_pass_at_1": ("Đạt FDRC hợp lệ", "Tỷ lệ đạt chỉ tính trên episode FDRC hợp lệ.", "rate", "fdrc"),
+    "headline_fdrc_pass_at_1": ("Điểm Tổng Đạt FDRC", "Tỷ lệ đạt ở tầng operational trên episode hợp lệ (gated theo reportable). Trùng với Điểm Tổng Đạt FDRC; giữ cho tương thích.", "rate", "fdrc"),
+    "performance_operational_fdrc_pass_at_1": ("Điểm Tổng Đạt FDRC", "Alias của headline_fdrc_pass_at_1.", "rate", "fdrc"),
+    "performance_fdrc_pass_at_1": ("Đạt FDRC siết", "Cổng siết: pass khi không có BẤT KỲ failure type nào, chỉ trên episode hợp lệ. Cực kỳ khắt khe (~4-5% trên run thật) — số phụ để soi lỗi, không phải điểm chất lượng.", "rate", "fdrc"),
     "raw_fdrc_pass_at_1": ("Đạt FDRC thô", "Tỷ lệ đạt trên toàn bộ episode, dùng để điều tra lỗi.", "rate", "fdrc"),
     "fdrc_validity_rate": ("Độ hợp lệ FDRC", "Tỷ lệ episode có đủ bằng chứng để chấm kết quả chính thức.", "rate", "fdrc"),
     "valid_episode_count": ("Episode hợp lệ", "Số episode FDRC đủ bằng chứng để chấm kết quả chính thức.", "count", "fdrc"),
     "invalid_episode_count": ("Episode không hợp lệ", "Số episode FDRC thiếu bằng chứng hoặc sai bản ghi/tool/trạng thái.", "count", "fdrc"),
     "validity_failure_counts": ("Lý do không hợp lệ", "Các lý do khiến episode không đủ điều kiện chấm chính thức.", "count", "fdrc"),
+    "infra_error_count": ("Lỗi hạ tầng", "Số episode chết vì lỗi mạng/DNS (transport) — model chưa từng được đo; bị loại khỏi mẫu số validity, KHÔNG tính là model fail.", "count", "fdrc"),
+    "measured_episode_count": ("Episode đo được", "Số episode thực sự chạy tới được model (đã loại lỗi hạ tầng); mẫu số của độ hợp lệ FDRC.", "count", "fdrc"),
     "correction_uptake_rate": ("Tiếp nhận lệnh sửa", "Tỷ lệ episode tiếp nhận đúng ý định cuối cùng sau khi sửa.", "rate", "fdrc"),
-    "operational_fdrc_pass_at_1": ("Đạt FDRC (nới)", "Tỷ lệ đạt ở tầng operational: nới khớp tool/arg, chuẩn hóa giá trị, chỉ tính lỗi blocking.", "rate", "fdrc"),
-    "operational_state_match": ("Đúng final state (nới)", "Tỷ lệ khớp final state sau chuẩn hóa casefold/bỏ dấu.", "rate", "fdrc"),
-    "operational_tool_match": ("Khớp tool (nới)", "Mọi expected call đều có call khớp; cho phép call thừa trong scope.", "rate", "fdrc"),
-    "operational_argument_match": ("Đúng argument (nới)", "Argument khớp sau chuẩn hóa, chỉ xét call đã gọi đúng tên tool.", "rate", "fdrc"),
-    "operational_correction_uptake_rate": ("Tiếp nhận lệnh sửa (nới)", "Đạt khi final state (đã chuẩn hóa) tới đúng mục tiêu đã sửa.", "rate", "fdrc"),
+    "operational_fdrc_pass_at_1": ("Điểm Tổng Đạt FDRC", "Tỷ lệ episode đạt FDRC (khớp tool/arg đã chuẩn hóa giá trị, chỉ tính lỗi blocking) — điểm chất lượng mô hình; reference-agent đạt 100% chứng minh evaluator nhất quán.", "rate", "fdrc"),
+    "operational_state_match": ("Đúng final state", "Tỷ lệ khớp final state sau chuẩn hóa casefold/bỏ dấu.", "rate", "fdrc"),
+    "operational_tool_match": ("Khớp tool", "Mọi expected call đều có call khớp; cho phép call thừa trong scope.", "rate", "fdrc"),
+    "operational_argument_match": ("Đúng argument", "Argument khớp sau chuẩn hóa, chỉ xét call đã gọi đúng tên tool.", "rate", "fdrc"),
+    "operational_correction_uptake_rate": ("Tiếp nhận lệnh sửa", "Đạt khi final state (đã chuẩn hóa) tới đúng mục tiêu đã sửa.", "rate", "fdrc"),
     "old_intent_suppression_rate": ("Chặn lệnh cũ", "Tỷ lệ episode không thực thi ý định ban đầu sau khi người dùng sửa.", "rate", "fdrc"),
     "forbidden_tool_call_rate": ("Gọi tool cấm", "Tỷ lệ episode có gọi tool bị cấm.", "rate", "fdrc"),
     "cancel_success_rate": ("Hủy lệnh đúng", "Tỷ lệ ca hủy không attempted tool call sau lệnh hủy.", "rate", "fdrc"),
@@ -771,7 +774,21 @@ def _fdrc_evidence_fields(metric_key: str, episode: dict[str, Any]) -> list[dict
         _field("final_pass", episode.get("scores", {}).get("final_pass")),
         _field("state_match", episode.get("scores", {}).get("state_match")),
     ]
-    if metric_key in {"fdrc_pass_at_1", "pass_at_1", "raw_fdrc_pass_at_1", "performance_fdrc_pass_at_1"}:
+    if metric_key in {
+        "headline_fdrc_pass_at_1",
+        "performance_operational_fdrc_pass_at_1",
+        "operational_fdrc_pass_at_1",
+    }:
+        scores = episode.get("scores", {}) if isinstance(episode.get("scores"), dict) else {}
+        fields.extend(
+            [
+                _field("operational_final_pass", scores.get("operational_final_pass")),
+                _field("operational_state_match", scores.get("operational_state_match")),
+                _field("operational_correction_uptaken", scores.get("operational_correction_uptaken")),
+                _field("failure_types", episode.get("failure_types", [])),
+            ]
+        )
+    elif metric_key in {"fdrc_pass_at_1", "pass_at_1", "raw_fdrc_pass_at_1", "performance_fdrc_pass_at_1"}:
         fields.extend(
             [
                 _field("correction_uptaken", repair.get("correction_uptaken")),
@@ -1017,7 +1034,7 @@ def _synth_null_reason(key: str, metrics: dict[str, Any]) -> str:
     Keeps N/A cells auditable: performance_* metrics are gated off until the run
     is reportable (validity >= 90%), everything else is simply absent data.
     """
-    if key.startswith("performance_"):
+    if key.startswith("performance_") or key == "headline_fdrc_pass_at_1":
         status = str(metrics.get("reportability_status") or "")
         if status and not status.startswith("REPORTABLE"):
             return "not_reportable_validity"
@@ -1029,6 +1046,9 @@ GOOD_HIGH_METRICS = {
     "pass_at_1",
     "raw_fdrc_pass_at_1",
     "performance_fdrc_pass_at_1",
+    "headline_fdrc_pass_at_1",
+    "performance_operational_fdrc_pass_at_1",
+    "operational_fdrc_pass_at_1",
     "tool_exact_match",
     "argument_exact_match",
     "state_match",
@@ -1089,7 +1109,10 @@ METRIC_PLAIN_MEANINGS = {
     "tool_argument_accuracy": "Đo từng tham số expected trong execute case có được truyền đúng giá trị hay không.",
     "fdrc_pass_at_1": "Tỷ lệ episode Full-Duplex đạt toàn bộ tiêu chí sửa lệnh và commit ý định cuối.",
     "raw_fdrc_pass_at_1": "Tỷ lệ đạt FDRC trên toàn bộ episode, kể cả episode thiếu bằng chứng.",
-    "performance_fdrc_pass_at_1": "Tỷ lệ đạt FDRC chỉ trên episode đủ điều kiện báo cáo performance.",
+    "operational_fdrc_pass_at_1": "Điểm Tổng Đạt FDRC: tỷ lệ episode đạt FDRC (khớp tool/arg đã chuẩn hóa giá trị, chỉ tính lỗi blocking) trên episode hợp lệ. Đây là điểm chất lượng mô hình; reference-agent đạt 100% chứng minh evaluator nhất quán.",
+    "headline_fdrc_pass_at_1": "Trùng Điểm Tổng Đạt FDRC (bản gated theo reportable); giữ cho tương thích.",
+    "performance_operational_fdrc_pass_at_1": "Alias của headline_fdrc_pass_at_1.",
+    "performance_fdrc_pass_at_1": "Cổng siết: episode chỉ đạt khi KHÔNG có bất kỳ failure type nào, tính trên episode hợp lệ. Rất khắt khe (~4-5% trên run thật) nên là số phụ để soi lỗi, không phải điểm chất lượng.",
     "fdrc_validity_rate": "Tỷ lệ episode FDRC có đủ transcript, timing, tool và state evidence để chấm chính thức.",
     "valid_episode_count": "Số episode FDRC đủ điều kiện dùng cho performance chính thức.",
     "invalid_episode_count": "Số episode FDRC thiếu bằng chứng hoặc sai log nên không nên dùng để kết luận performance.",
@@ -1935,14 +1958,12 @@ class DashboardStore:
                     selected_track,
                     successful_episode_ids,
                     by_id,
-                    limit=None,
                 ),
                 "failed_episodes": _explain_sample_rows(
                     metric_key,
                     selected_track,
                     failed_episode_ids,
                     by_id,
-                    limit=None,
                 ),
                 "episode_sample_limit": METRIC_SAMPLE_LIMIT,
                 "numerator_is_failure": metric_key in METRIC_NUMERATOR_IS_FAILURE,

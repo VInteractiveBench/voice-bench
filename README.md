@@ -68,6 +68,20 @@ Sáu official tools nằm ngoài MVP là `weather`, `news_search`, `web_search`,
 | `src/tau2_voice/` | Legacy voice/realtime experiments; không phải benchmark surface chính. |
 | `results/` | Output của các lần chạy: `episodes.jsonl`, `metrics.json`, report artifacts. |
 
+### Golden Datasets (`data/jsonl/`)
+
+Có ba overlay dataset trong `data/jsonl/`, mỗi file dùng một **ID namespace tách biệt**. Đừng nhầm lẫn — bảng dưới là nguồn tham chiếu duy nhất:
+
+| File | ID namespace | Vai trò | Ai đọc |
+|---|---|---|---|
+| `fdrc_golden_enriched_v2_90.jsonl` | `fdrc_v2_*` (90 ids) | **Canonical FDRC golden set.** Đây là dataset chuẩn duy nhất cho benchmark Full-Duplex Repair-to-Commit. | Default của `run_fdrc.py` (`DEFAULT_FDRC_OVERLAYS`). |
+| `speech_task_overlays.jsonl` | `pg_*` (policy gating) + `fdrc_vehicle_*` (legacy MVP FDRC) | **Canonical Policy-Gating set** (các id `pg_*`). Cũng giữ bộ FDRC MVP cũ (`fdrc_vehicle_*`) mà test/reference vẫn dùng. **Không xóa file này.** | Default của `run_policy_gating.py`; nhiều test và smoke script. |
+| `fdrc_golden_dataset.jsonl` | `fdrc_balanced_v1` / `fdrc_*` (27 ids) | Bộ FDRC trung gian/dư thừa, tiền thân của v2_90. Giữ lại vì còn được test và generator script tham chiếu. | `tests/test_vivi_voice_benchmark.py`, `scripts/generate_fdrc_golden_dataset.py`, legacy map trong `src/io.py`. |
+
+Tóm tắt: bộ **canonical FDRC** là `fdrc_golden_enriched_v2_90.jsonl` (namespace `fdrc_v2_*`); bộ **policy gating** là các id `pg_*` trong `speech_task_overlays.jsonl`.
+
+`run_fdrc.py` chỉ ép `require_mvp_counts=True` (preflight kiểm tra đúng count 30 FDRC / ≥24 policy của bộ MVP) khi `--overlays` trỏ tới `speech_task_overlays.jsonl` (hoặc alias `src/speech_task_overlays.jsonl`); với bộ canonical v2_90 và các dataset khác, preflight chạy với `require_mvp_counts=False` nên chỉ validate shape chứ không ép count MVP.
+
 ## Benchmark 1: Full-Duplex Repair-to-Commit
 
 FDRC tạo tình huống user nói một lệnh ban đầu, assistant bắt đầu phản hồi, sau đó user chen ngang để sửa hoặc hủy. Benchmark kiểm tra Vivi có dừng đúng lúc, bỏ ý định cũ và chỉ commit ý định cuối cùng hay không.
@@ -108,7 +122,11 @@ Expected: không có tool call tạo cuộc gọi.
 
 | Metric | Ý nghĩa |
 |---|---|
-| `fdrc_pass_at_1` | Episode pass toàn bộ task, policy, voice và lifecycle checks. |
+| `headline_fdrc_pass_at_1` | **HEADLINE (số chính thức).** Pass operational (chỉ tính lỗi *blocking*) trên tập episode hợp lệ. Đây là số chất lượng mô hình công bằng. |
+| `performance_fdrc_pass_at_1` | Cổng **strict**: pass khi KHÔNG còn bất kỳ failure type nào, trên tập episode hợp lệ. Cực kỳ khắt khe (~4-5% trên run thật). |
+| `operational_fdrc_pass_at_1` | Pass operational trên toàn bộ episode hoàn tất (chưa lọc validity), dùng để đối chiếu/điều tra. |
+| `raw_fdrc_pass_at_1` | Pass strict trên toàn bộ episode (kể cả thiếu bằng chứng), chỉ để điều tra. |
+| `fdrc_validity_rate` | Cổng dữ liệu: episode đủ bằng chứng để chấm. KHÔNG phải điểm chất lượng. |
 | `correction_uptake_rate` | Tỷ lệ final intent được tiếp nhận đúng. |
 | `old_intent_suppression_rate` | Tỷ lệ old intent không bị commit. |
 | `forbidden_tool_call_rate` | Tỷ lệ gọi tool bị cấm thuộc old intent. |
@@ -116,6 +134,21 @@ Expected: không có tool call tạo cuộc gọi.
 | `yield_latency_p50_ms` | Median latency từ interrupt đến yield. |
 | `yield_latency_p95_ms` | Tail latency của yield. |
 | `yield_latency_pass_rate` | Tỷ lệ yield dưới threshold, mặc định 700 ms nếu overlay không override. |
+
+### Strict vs Operational: số nào là headline và tại sao
+
+Evaluator chấm mỗi episode ở **hai tầng** (không thay đổi công thức scoring, chỉ khác số được nêu lên đầu):
+
+- **Strict** (`final_pass` → `performance_fdrc_pass_at_1`): episode chỉ pass khi
+  `task_pass AND policy_pass AND voice_pass AND fdrc_validity.valid AND không còn bất kỳ failure type nào`.
+  Mệnh đề "không còn *bất kỳ* failure type nào" khiến nó cực kỳ khắt khe: chỉ một loại lỗi chẩn đoán *không-blocking* cũng làm rớt cả episode. Trên run thật Gemini chỉ đạt **~4.4% strict** — con số này gây hiểu lầm vì nó là *cổng siết*, không phải điểm chất lượng mô hình.
+
+- **Operational** (`operational_final_pass` → `headline_fdrc_pass_at_1`): pass khi
+  `fdrc_validity.valid AND không còn lỗi *blocking*`, sau khi đã nới khớp tool/argument và chuẩn hóa giá trị (casefold + bỏ dấu). Tầng này cố tình **rộng lượng với false-negative** và là thước đo chất lượng công bằng. Trên cùng run đó Gemini đạt **~20% operational**.
+
+**Reference-agent (oracle) đạt 100% trên CẢ HAI tầng**, chứng minh evaluator nhất quán: chênh lệch 4.4% vs 20% phản ánh hành vi mô hình thật, không phải lỗi chấm điểm.
+
+Vì vậy **operational là headline** (`headline_fdrc_pass_at_1`, alias `performance_operational_fdrc_pass_at_1`), còn strict được giữ lại như số *thứ cấp, gắn nhãn rõ "strict"*. Cả hai chỉ được tính khi run **reportable** (validity ≥ 90%); nếu không reportable, cả hai trả `null`. Dashboard hiển thị operational làm card chính của nhóm FDRC và đẩy strict xuống ngay sau đó.
 
 ## Benchmark 2: Policy-Grounded Voice Command Gating
 

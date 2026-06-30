@@ -455,12 +455,23 @@ def test_fdrc_metric_catalog_hides_alias_duplicate_cards(tmp_path):
 
     assert summary["metrics"]["fdrc_pass_at_1"] is not None
     assert summary["metrics"]["raw_fdrc_pass_at_1"] is not None
-    assert "raw_fdrc_pass_at_1" in metric_keys
-    assert "performance_fdrc_pass_at_1" in metric_keys
-    assert "fdrc_pass_at_1" not in metric_keys
-    assert "validity_failure_counts" not in metric_keys
-    assert "fdrc_pass_at_1" not in fdrc_group["metric_keys"]
-    assert "validity_failure_counts" not in fdrc_group["metric_keys"]
+    cards = fdrc_group["metric_keys"]
+    # Single consolidated FDRC pass card = operational ("Điểm Tổng Đạt FDRC").
+    assert "operational_fdrc_pass_at_1" in cards
+    # Duplicate / strict / raw pass variants are NOT shown as FDRC cards anymore.
+    assert "headline_fdrc_pass_at_1" not in cards
+    assert "performance_fdrc_pass_at_1" not in cards
+    assert "raw_fdrc_pass_at_1" not in cards
+    assert "fdrc_pass_at_1" not in cards
+    assert "validity_failure_counts" not in cards
+    # Strict correction-uptake duplicate removed; operational kept.
+    assert "correction_uptake_rate" not in cards
+    assert "operational_correction_uptake_rate" in cards
+    # No metric label anywhere contains the banned words "nới"/"chính thức".
+    all_labels = [row["label"] for row in summary["metric_catalog"]]
+    assert all("nới" not in lbl and "chính thức" not in lbl for lbl in all_labels), [
+        lbl for lbl in all_labels if "nới" in lbl or "chính thức" in lbl
+    ]
 
 
 def test_fdrc_api_and_evaluator_contract_metrics_match(tmp_path):

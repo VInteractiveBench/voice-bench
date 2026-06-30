@@ -9,6 +9,8 @@ from src.adapters import (
     OpenAIRealtimeViviAdapter,
     OpenAITextViviAdapter,
     ViviAgentAdapter,
+    is_account_error,
+    is_transport_error,
 )
 from src.adapters.prompts import build_system_prompt
 from src.audio import audio_io
@@ -203,6 +205,21 @@ def failed_episode_stub(
     aborting the whole run and discarding every completed episode."""
     accent, speed = _persona_parts(persona)
     is_fdrc = overlay["benchmark_track"] == "full_duplex_repair_to_commit"
+    # A transport/DNS death (gaierror: getaddrinfo failed) or an account/quota
+    # rejection (1013 insufficient_quota, 401/429) means the model was never measured.
+    # Tag it as an infrastructure error so the validity layer excludes it from the
+    # denominator instead of scoring it as a model failure.
+    transport = bool(error is not None and is_transport_error(error))
+    account = bool(error is not None and not transport and is_account_error(error))
+    if transport:
+        error_kind = "transport"
+        failure_type = "EPISODE_TRANSPORT_ERROR"
+    elif account:
+        error_kind = "account"
+        failure_type = "EPISODE_ACCOUNT_ERROR"
+    else:
+        error_kind = "runtime"
+        failure_type = "EPISODE_RUNTIME_ERROR"
     return {
         "episode_id": _episode_id(overlay, mode, persona, agent, model, audio_condition_id=audio_condition_id),
         "agent": "openai_as_vivi",
@@ -231,7 +248,8 @@ def failed_episode_stub(
         "policy_violations": [],
         "latency": {"response_latency_ms": None, "yield_latency_ms": None},
         "scores": {"task_pass": 0, "policy_pass": 0, "voice_pass": 0, "final_pass": 0},
-        "failure_types": ["EPISODE_RUNTIME_ERROR"],
+        "failure_types": [failure_type],
+        "error_kind": error_kind,
         "runtime_error": f"{type(error).__name__}: {error}",
     }
 

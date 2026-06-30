@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from statistics import median
 
 from .critical_slot_evaluator import evaluate_critical_slots
 from .common import evaluate_common, summarize_shared, tool_call_matches
-from .fdrc_contract import summarize_fdrc_contract
+from .fdrc_contract import summarize_fdrc_contract, yield_latency_passed
 from .failure_taxonomy import FailureType, is_blocking, primary_failure
 from .operational import (
     argument_match_normalized,
@@ -47,6 +48,39 @@ def _event_time_for_episode(result: dict, overlay: dict, event_name: str) -> int
             )
         return event_time(events, event_name) or event_time(overlay.get("voice_timeline", []), event_name)
     return None
+
+
+def _safe_number(value: object) -> int | float | None:
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def _percentile(values: list[int | float], percentile: float) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    index = round((len(ordered) - 1) * percentile)
+    return float(ordered[index])
+
+
+def _observed_yield_summary(episodes: list[dict]) -> dict:
+    rows = [
+        episode
+        for episode in episodes
+        if _safe_number((episode.get("latency") or {}).get("yield_latency_ms")) is not None
+    ]
+    values = [
+        float((episode.get("latency") or {}).get("yield_latency_ms"))
+        for episode in rows
+    ]
+    return {
+        "p50_ms": float(median(values)) if values else None,
+        "p95_ms": _percentile(values, 0.95),
+        "pass_rate": (
+            sum(1 for episode in rows if yield_latency_passed(episode)) / len(rows)
+            if rows
+            else None
+        ),
+    }
 
 
 def _missing_observed_events(result: dict, expected_calls: list[dict]) -> list[str]:
@@ -174,9 +208,12 @@ def evaluate_fdrc_episode(episode: dict, overlay: dict, task: dict) -> dict:
         and not result["critical_slot_result"].get("passed", True)
     )
     missing_observed = _missing_observed_events(result, expected_calls)
+    max_yield_latency_ms = overlay.get("voice_assertions", {}).get(
+        "max_yield_latency_ms", 700
+    )
     yield_result = evaluate_yield(
         result.get("voice_events", []),
-        overlay.get("voice_assertions", {}).get("max_yield_latency_ms", 700),
+        max_yield_latency_ms,
     )
     interrupt = _event_time_for_episode(result, overlay, "user_interrupt_start")
     assistant_start = _event_time_for_episode(result, overlay, "assistant_speech_start")
@@ -287,6 +324,7 @@ def evaluate_fdrc_episode(episode: dict, overlay: dict, task: dict) -> dict:
     result["latency"] = {
         **result.get("latency", {}),
         "yield_latency_ms": yield_result["yield_latency_ms"],
+        "yield_threshold_ms": max_yield_latency_ms,
         "yield_applicable": assistant_speaking_before_interrupt,
     }
     result["scores"]["voice_pass"] = int(
@@ -348,6 +386,17 @@ def summarize_fdrc(episodes: list[dict]) -> dict:
     else:
         reportability_status = "REPORTABLE_DOMAIN"
     reportable = reportability_status.startswith("REPORTABLE")
+    # Operational tier is "lenient on false negatives": it only counts blocking
+    # failures (after normalized state/tool/arg matching). On the valid subset it
+    # is the fair model-quality number, so it is the PRIMARY reportable headline.
+    # The strict tier (`performance_fdrc_pass_at_1`) additionally fails an episode
+    # for ANY diagnostic failure type, which makes it an extremely conservative
+    # gate (~4-5% on real runs) rather than a quality score; keep it as secondary.
+    valid_operational = summarize_fdrc_operational(valid_rows)
+    valid_yield = _observed_yield_summary(valid_rows)
+    headline_operational_pass = (
+        valid_operational.get("operational_fdrc_pass_at_1") if reportable else None
+    )
     return {
         **summarize_shared(episodes),
         **raw,
@@ -356,17 +405,21 @@ def summarize_fdrc(episodes: list[dict]) -> dict:
         "total_episode_count": len(episodes),
         "reportability_status": reportability_status,
         "raw_fdrc_pass_at_1": raw.get("fdrc_pass_at_1"),
+        # Primary headline: operational pass on the valid/reportable subset.
+        "headline_fdrc_pass_at_1": headline_operational_pass,
+        # Explicit alias mirroring the `performance_*` naming for the strict tier.
+        "performance_operational_fdrc_pass_at_1": headline_operational_pass,
         "performance_fdrc_pass_at_1": (
             valid_contract.get("fdrc_pass_at_1") if reportable else None
         ),
         "performance_yield_latency_p50_ms": (
-            valid_contract.get("yield_latency_p50_ms") if reportable else None
+            valid_yield.get("p50_ms") if reportable else None
         ),
         "performance_yield_latency_p95_ms": (
-            valid_contract.get("yield_latency_p95_ms") if reportable else None
+            valid_yield.get("p95_ms") if reportable else None
         ),
         "performance_yield_latency_pass_rate": (
-            valid_contract.get("yield_latency_pass_rate") if reportable else None
+            valid_yield.get("pass_rate") if reportable else None
         ),
         "performance_metric_contract": valid_contract.get("metric_contract", {}),
     }

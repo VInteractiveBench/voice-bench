@@ -128,10 +128,25 @@ def classify_fdrc_validity(
     }
 
 
+_INFRA_ERROR_KINDS = {"transport", "account"}
+_INFRA_FAILURE_TYPES = {"EPISODE_TRANSPORT_ERROR", "EPISODE_ACCOUNT_ERROR"}
+
+
+def _is_infra_error(episode: dict[str, Any]) -> bool:
+    """True when the episode died on infrastructure (transport/DNS) or an account/quota
+    rejection and the model was never measured. Excluded from the validity denominator."""
+    return (
+        episode.get("error_kind") in _INFRA_ERROR_KINDS
+        or bool(_INFRA_FAILURE_TYPES & set(episode.get("failure_types") or []))
+    )
+
+
 def summarize_fdrc_validity(episodes: list[dict[str, Any]]) -> dict[str, Any]:
-    total = len(episodes)
-    valid_rows = [episode for episode in episodes if episode.get("fdrc_validity", {}).get("valid")]
-    invalid_rows = [episode for episode in episodes if episode not in valid_rows]
+    infra_rows = [episode for episode in episodes if _is_infra_error(episode)]
+    measured = [episode for episode in episodes if not _is_infra_error(episode)]
+    total = len(measured)
+    valid_rows = [episode for episode in measured if episode.get("fdrc_validity", {}).get("valid")]
+    invalid_rows = [episode for episode in measured if episode not in valid_rows]
     reason_counts = Counter(
         reason
         for episode in invalid_rows
@@ -140,7 +155,11 @@ def summarize_fdrc_validity(episodes: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "valid_episode_count": len(valid_rows),
         "invalid_episode_count": len(invalid_rows),
+        # Validity is computed over measured episodes only; infra deaths (transport/DNS)
+        # are reported separately so a transient network blip cannot tank reportability.
         "fdrc_validity_rate": len(valid_rows) / total if total else None,
+        "infra_error_count": len(infra_rows),
+        "measured_episode_count": total,
         "validity_failure_counts": [
             {"key": key, "count": count} for key, count in reason_counts.most_common()
         ],

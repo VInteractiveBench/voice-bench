@@ -20,9 +20,9 @@ FDRC_REQUIRED_METRICS = [
 
 FDRC_NULLABLE_METRICS = {
     "cancel_success_rate": "no_cancel_cases",
-    "yield_latency_p50_ms": "no_applicable_yield_cases",
-    "yield_latency_p95_ms": "no_applicable_yield_cases",
-    "yield_latency_pass_rate": "no_applicable_yield_cases",
+    "yield_latency_p50_ms": "no_observed_yield_latency",
+    "yield_latency_p95_ms": "no_observed_yield_latency",
+    "yield_latency_pass_rate": "no_observed_yield_latency",
 }
 
 
@@ -32,6 +32,35 @@ def _failure_values(episode: dict[str, Any]) -> set[str]:
 
 def _safe_number(value: Any) -> int | float | None:
     return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def _event_time(events: list[dict[str, Any]], event_name: str) -> int | None:
+    return next(
+        (
+            event.get("t_ms")
+            for event in events
+            if event.get("event") == event_name and isinstance(event.get("t_ms"), int)
+        ),
+        None,
+    )
+
+
+def _yield_threshold_ms(episode: dict[str, Any]) -> int | float:
+    latency = episode.get("latency", {}) or {}
+    explicit = _safe_number(latency.get("yield_threshold_ms"))
+    if explicit is not None:
+        return explicit
+    events = episode.get("voice_events", []) or []
+    deadline = _event_time(events, "assistant_should_yield_by")
+    interrupt = _event_time(events, "user_interrupt_start")
+    if deadline is not None and interrupt is not None and deadline >= interrupt:
+        return deadline - interrupt
+    return 700
+
+
+def yield_latency_passed(episode: dict[str, Any]) -> bool:
+    value = _safe_number(episode.get("latency", {}).get("yield_latency_ms"))
+    return value is not None and value <= _yield_threshold_ms(episode)
 
 
 def _rate(rows: list[dict[str, Any]], predicate) -> float | None:
@@ -83,11 +112,16 @@ def summarize_fdrc_contract(episodes: list[dict[str, Any]]) -> dict[str, Any]:
         episode for episode in rows
         if episode.get("latency", {}).get("yield_applicable")
     ]
+    yield_latency_rows = [
+        episode
+        for episode in rows
+        if _safe_number(episode.get("latency", {}).get("yield_latency_ms")) is not None
+    ]
     latency_values = [
         value
         for value in (
             _safe_number(episode.get("latency", {}).get("yield_latency_ms"))
-            for episode in applicable_rows
+            for episode in yield_latency_rows
         )
         if value is not None
     ]
@@ -104,8 +138,8 @@ def summarize_fdrc_contract(episodes: list[dict[str, Any]]) -> dict[str, Any]:
         "yield_latency_p50_ms": median(latency_values) if latency_values else None,
         "yield_latency_p95_ms": _percentile(latency_values, 0.95),
         "yield_latency_pass_rate": _rate(
-            applicable_rows,
-            lambda episode: "YIELD_LATENCY_TOO_HIGH" not in _failure_values(episode),
+            yield_latency_rows,
+            yield_latency_passed,
         ),
         "yield_applicable_count": len(applicable_rows),
         "yield_applicable_rate": _rate(rows, lambda e: bool(e.get("latency", {}).get("yield_applicable"))),
@@ -141,9 +175,9 @@ def summarize_fdrc_contract(episodes: list[dict[str, Any]]) -> dict[str, Any]:
         "partial_episode_count": len(rows),
         "fdrc_pass_at_1": len(completed_rows),
         "pass_at_1": len(completed_rows),
-        "yield_latency_p50_ms": len(rows),
-        "yield_latency_p95_ms": len(rows),
-        "yield_latency_pass_rate": len(rows),
+        "yield_latency_p50_ms": len(yield_latency_rows),
+        "yield_latency_p95_ms": len(yield_latency_rows),
+        "yield_latency_pass_rate": len(yield_latency_rows),
         "yield_applicable_count": len(rows),
         "yield_applicable_rate": len(rows),
         "policy_violation_rate": len(completed_rows),

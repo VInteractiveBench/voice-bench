@@ -1,0 +1,35 @@
+{
+  "run_id": "fdrc_reference",
+  "run_kind": "reference",
+  "created_at": "2026-06-25T05:04:26.212755+00:00",
+  "benchmark": "full_duplex_repair_to_commit",
+  "benchmark_track": "full_duplex_repair_to_commit",
+  "providers": [],
+  "models": [],
+  "adapters": [
+    "reference_agent"
+  ],
+  "fdrc_yield_modes": [],
+  "tick_ms": 200,
+  "episode_set_hash": "f44aea4365d2bfa71accc9bec30f2834a2d015a5e59e7e9aec4eeec2bb24ce99",
+  "overlay_hash": "d96d5c12240595fdc475e7c9c90ad57c6f17e81d4ac8a7d4e2c85e535348cde7",
+  "persona_hash": "faeddd0af22e9c83be2fbf7dfd95dd3f79e2e8e6187c38359a14914cd19cf7ca",
+  "domains": [
+    "automotive",
+    "media_phone",
+    "navigation"
+  ],
+  "personas": [
+    "vi_central_normal",
+    "vi_north_normal",
+    "vi_south_normal"
+  ],
+  "audio_conditions": [
+    "interaction_stress"
+  ],
+  "episode_count": 90,
+  "provider_episode_count": 0,
+  "reference_episode_count": 90,
+  "is_reference": true,
+  "mixed_track": false
+}
