@@ -185,3 +185,4 @@ cython_debug/
 
 /results/*
 /docs/*
+!/docs/dashboard_ket_qua_hien_tai.md
