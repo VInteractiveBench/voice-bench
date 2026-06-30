@@ -76,6 +76,34 @@ Hiểu đơn giản: benchmark dựng một tình huống có người dùng nó
 
 ---
 
+### Bộ dữ liệu dùng cho scripted và simulation
+
+FDRC dùng một nguồn chân lý duy nhất cho cả OpenAI và Gemini: `data/jsonl/fdrc_golden_enriched_v2_90.jsonl`. Đây là canonical golden set gồm 90 overlay thuộc namespace `fdrc_v2_*`, bao phủ ba domain chính `automotive`, `navigation`, `media_phone`, ba vùng giọng `north`, `central`, `south`, và các nhóm repair như `entity_repair`, `slot_repair`, `cancel_before_commit`.
+
+Dataset này không chỉ là transcript. Mỗi overlay mô tả đầy đủ môi trường giả lập cần thiết để chấm một episode:
+
+| Nhóm dữ liệu | Field chính | Vai trò trong môi trường giả lập |
+| --- | --- | --- |
+| Nhận dạng tình huống | `speech_overlay_id`, `base_task_id`, `domain`, `coverage_axes` | Ghép overlay với task nền trong `src/base_task_manifest.json`, chọn schema tool theo domain, và bảo đảm coverage theo lát cắt sản phẩm. |
+| Lượt người dùng | `initial_spoken_utterance`, `repair_utterance`, `repair_mode` | Tạo lệnh ban đầu và lệnh sửa/hủy mà provider phải xử lý trong ngữ cảnh full-duplex. |
+| Ý định và state chuẩn | `initial_intent`, `final_intent`, `expected_critical_slots`, `expected_final_state` | Xác định ý định cũ phải bị loại bỏ, ý định cuối cùng phải được commit, và trạng thái cuối cùng phải khớp sau khi mock tool chạy. |
+| Tool oracle | `expected_tool_calls`, `forbidden_tool_calls` | Xác định tool call hợp lệ và tool call bị cấm; đây là cơ sở để phát hiện commit nhầm ý định cũ, sai tool, sai argument hoặc side effect không được phép. |
+| Timeline song công | `voice_timeline`, `voice_assertions` | Mô tả thời điểm user bắt đầu nói, assistant dự kiến bắt đầu nói, user chen ngang, hạn nhường lời, và mốc sớm nhất được phép commit. |
+
+`src/base_task_manifest.json` bổ sung trạng thái nền và mục tiêu task gốc, còn `MockToolServer` dùng domain plus overlay để thực thi tool một cách deterministic. Vì vậy, môi trường giả lập không phụ thuộc vào provider: OpenAI Realtime và Gemini Live nhận cùng nội dung task, cùng schema tool, cùng audio condition, cùng persona, cùng mốc interrupt/commit, và chỉ khác adapter/model đang được đo.
+
+Hai chế độ provider dùng cùng dataset nhưng khác cách phát sinh hành vi người dùng:
+
+| Chế độ run | Cờ runner | Cách tạo môi trường người dùng | Nguồn dữ liệu bắt buộc | Ý nghĩa khi so sánh OpenAI/Gemini |
+| --- | --- | --- | --- | --- |
+| `scripted` | `--user-simulator off` | Runner synthesize audio trực tiếp từ `initial_spoken_utterance` và `repair_utterance`; thời điểm chen ngang lấy từ `voice_timeline.user_interrupt_start`, sau đó `_await_barge_in()` căn theo lúc assistant thật sự bắt đầu nói để tạo overlap thực tế. | `fdrc_golden_enriched_v2_90.jsonl`, `src/base_task_manifest.json`, persona YAML, audio condition YAML. | Đây là đường đo ổn định nhất vì lượt user cố định; khác biệt kết quả chủ yếu phản ánh adapter/model và transport realtime/audio. |
+| `simulation live` | `--user-simulator live` | `UserSimulator` dựng `Scenario` từ overlay: `opening_intent = initial_spoken_utterance`, `true_goal = repair_utterance`, `expected_final_state = expected_final_state`; simulator nghe phản hồi model tại checkpoint semantic rồi quyết định `listen`, `bargein`, `confirm`, hoặc `stop`. | Golden overlay, base task, và guideline trong `data/user_simulator/` nếu bật live simulation. | Đây là đường đo gần hành vi người dùng hơn, nhưng có thêm phương sai từ simulator model; vì vậy phải tách rõ khi so sánh với scripted. |
+| `simulation replay` | `--user-simulator replay` | Runner đọc `SimTrace` đã ghi trong `data/simulator_traces`, phát lại `opening`, `repair_text`, và `barge_in_t_ms`; nếu chưa có trace thì fallback sang live và ghi trace mới. | Golden overlay, base task, và trace tương ứng theo overlay/persona/simulator model. | Đây là compromise giữa realism và reproducibility: dynamic trace đã được cố định để OpenAI/Gemini có thể được so sánh trên cùng lượt user. |
+
+Điểm cần giữ nguyên khi báo cáo kết quả là `sim` không phải một golden dataset khác. `fdrc_openai_script`, `fdrc_gemini_script`, `fdrc_openai_sim`, và `fdrc_gemini_sim` đều được chấm trên cùng FDRC golden set; khác biệt nằm ở cách user repair được phát ra và cách timestamp chen ngang được hiện thực hóa trong phiên realtime. Evaluator vẫn dùng `expected_tool_calls`, `forbidden_tool_calls`, `expected_final_state`, `voice_timeline`, và `voice_assertions` từ overlay để bảo toàn cùng một oracle chấm điểm.
+
+---
+
 ## Bằng chứng bắt buộc cần có
 
 | Event hoặc field            | Ý nghĩa                                                              |
