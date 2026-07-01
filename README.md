@@ -1,4 +1,5 @@
 # Vivi Voice CarBench VN
+<img width="1902" height="916" alt="image" src="https://github.com/user-attachments/assets/aa1fdb07-4dd9-4f90-83e2-58f590e0191b" />
 
 ## Context
 
